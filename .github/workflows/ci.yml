@@ -34,6 +34,7 @@ jobs:
     name: Test (Supabase S3)
     runs-on: ubuntu-latest
     needs: build
+    environment: OcStorageTests
 
     env:
       SUPABASE_S3_ENDPOINT: ${{ secrets.SUPABASE_S3_ENDPOINT }}
