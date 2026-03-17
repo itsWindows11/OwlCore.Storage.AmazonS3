@@ -1,0 +1,12 @@
+global using Amazon.Runtime;
+global using Amazon.S3;
+global using Amazon.S3.Model;
+global using Microsoft.VisualStudio.TestTools.UnitTesting;
+global using OwlCore.Storage;
+global using OwlCore.Storage.AmazonS3;
+global using OwlCore.Storage.CommonTests;
+global using S3ServerLibrary;
+global using S3ServerLibrary.S3Objects;
+global using System.Collections.Concurrent;
+global using System.Security.Cryptography;
+global using WatsonWebserver.Core;

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/OwlCore.Storage.AmazonS3.csproj" />
+  <Project Path="tests/OwlCore.Storage.AmazonS3.Tests.csproj" />
+</Solution>
