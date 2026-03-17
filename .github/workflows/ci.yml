@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+  test-supabase:
+    name: Test (Supabase S3)
+    runs-on: ubuntu-latest
+    needs: build
+
+    env:
+      SUPABASE_S3_ENDPOINT: ${{ secrets.SUPABASE_S3_ENDPOINT }}
+      SUPABASE_S3_ACCESS_KEY: ${{ secrets.SUPABASE_S3_ACCESS_KEY }}
+      SUPABASE_S3_SECRET_KEY: ${{ secrets.SUPABASE_S3_SECRET_KEY }}
+      SUPABASE_S3_BUCKET: ${{ secrets.SUPABASE_S3_BUCKET }}
+      SUPABASE_S3_REGION: ${{ vars.SUPABASE_S3_REGION }}
+      SUPABASE_S3_FORCE_PATH_STYLE: ${{ vars.SUPABASE_S3_FORCE_PATH_STYLE }}
+
+    steps:
+      - name: Check secret availability
+        id: secrets_check
+        shell: bash
+        run: |
+          if [ -n "$SUPABASE_S3_ENDPOINT" ] && [ -n "$SUPABASE_S3_ACCESS_KEY" ] && [ -n "$SUPABASE_S3_SECRET_KEY" ] && [ -n "$SUPABASE_S3_BUCKET" ]; then
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip Supabase tests (secrets unavailable)
+        if: steps.secrets_check.outputs.run_tests != 'true'
+        run: echo "Supabase secrets are not configured for this run. Skipping Supabase integration tests."
+
+      - name: Checkout
+        if: steps.secrets_check.outputs.run_tests == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        if: steps.secrets_check.outputs.run_tests == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Restore
+        if: steps.secrets_check.outputs.run_tests == 'true'
+        run: dotnet restore
+
+      - name: Build
+        if: steps.secrets_check.outputs.run_tests == 'true'
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Create CI runsettings
+        if: steps.secrets_check.outputs.run_tests == 'true'
+        shell: bash
+        run: |
+          cat > ci.runsettings <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <RunSettings>
+            <RunConfiguration>
+              <EnvironmentVariables>
+                <SUPABASE_S3_ENDPOINT>${SUPABASE_S3_ENDPOINT}</SUPABASE_S3_ENDPOINT>
+                <SUPABASE_S3_ACCESS_KEY>${SUPABASE_S3_ACCESS_KEY}</SUPABASE_S3_ACCESS_KEY>
+                <SUPABASE_S3_SECRET_KEY>${SUPABASE_S3_SECRET_KEY}</SUPABASE_S3_SECRET_KEY>
+                <SUPABASE_S3_BUCKET>${SUPABASE_S3_BUCKET}</SUPABASE_S3_BUCKET>
+                <SUPABASE_S3_REGION>${SUPABASE_S3_REGION:-us-east-1}</SUPABASE_S3_REGION>
+                <SUPABASE_S3_FORCE_PATH_STYLE>${SUPABASE_S3_FORCE_PATH_STYLE:-true}</SUPABASE_S3_FORCE_PATH_STYLE>
+              </EnvironmentVariables>
+            </RunConfiguration>
+          </RunSettings>
+          EOF
+
+      - name: Test
+        if: steps.secrets_check.outputs.run_tests == 'true'
+        run: dotnet test tests/OwlCore.Storage.AmazonS3.Tests.csproj --configuration Release --no-build --settings ci.runsettings

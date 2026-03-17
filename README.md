@@ -1,5 +1,8 @@
 # OwlCore.Storage.AmazonS3
 
+[![CI](https://github.com/itsWindows11/OwlCore.Storage.AmazonS3/actions/workflows/ci.yml/badge.svg)](https://github.com/itsWindows11/OwlCore.Storage.AmazonS3/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/OwlCore.Storage.AmazonS3.svg)](https://www.nuget.org/packages/OwlCore.Storage.AmazonS3)
+
 Amazon S3 (and S3-compatible) storage implementation for [`OwlCore.Storage`](https://github.com/Arlodotexe/OwlCore.Storage).
 
 ## Target frameworks
@@ -67,7 +70,7 @@ Test project:
 
 - `tests/OwlCore.Storage.AmazonS3.Tests.csproj`
 
-### Required environment variables
+### Local required environment variables
 
 - `SUPABASE_S3_ENDPOINT`
 - `SUPABASE_S3_ACCESS_KEY`
@@ -92,6 +95,28 @@ The test project also defines `RunSettingsFilePath`, so this also works:
 ```bash
 dotnet test tests/OwlCore.Storage.AmazonS3.Tests.csproj
 ```
+
+### GitHub Actions test workflow
+
+Workflow file:
+
+- `.github/workflows/ci.yml`
+
+`build` runs on every push/PR to `main`.
+
+`test-supabase` runs only when required secrets are set.
+
+Set these repository **Secrets**:
+
+- `SUPABASE_S3_ENDPOINT`
+- `SUPABASE_S3_ACCESS_KEY`
+- `SUPABASE_S3_SECRET_KEY`
+- `SUPABASE_S3_BUCKET`
+
+Optional repository **Variables**:
+
+- `SUPABASE_S3_REGION` (recommended `us-east-1`)
+- `SUPABASE_S3_FORCE_PATH_STYLE` (`true` recommended)
 
 ### Test data cleanup
 
