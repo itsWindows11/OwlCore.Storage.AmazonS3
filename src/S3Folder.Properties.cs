@@ -2,14 +2,11 @@ namespace OwlCore.Storage.AmazonS3;
 
 public partial class S3Folder : ICreatedAt, ILastModifiedAt
 {
-    private ICreatedAtProperty? _createdAt;
-    private ILastModifiedAtProperty? _lastModifiedAt;
+    /// <inheritdoc />
+    public ICreatedAtProperty CreatedAt => field ??= new S3FolderDateTimeProperty(this, isCreatedAt: true);
 
     /// <inheritdoc />
-    public ICreatedAtProperty CreatedAt => _createdAt ??= new S3FolderDateTimeProperty(this, isCreatedAt: true);
-
-    /// <inheritdoc />
-    public ILastModifiedAtProperty LastModifiedAt => _lastModifiedAt ??= new S3FolderDateTimeProperty(this, isCreatedAt: false);
+    public ILastModifiedAtProperty LastModifiedAt => field ??= new S3FolderDateTimeProperty(this, isCreatedAt: false);
 
     private async Task<DateTime?> GetCreatedAtValueAsync(CancellationToken cancellationToken)
     {

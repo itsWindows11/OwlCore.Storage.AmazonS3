@@ -2,14 +2,11 @@ namespace OwlCore.Storage.AmazonS3;
 
 public partial class S3File : ICreatedAt, ILastModifiedAt
 {
-    private ICreatedAtProperty? _createdAt;
-    private ILastModifiedAtProperty? _lastModifiedAt;
+    /// <inheritdoc />
+    public ICreatedAtProperty CreatedAt => field ??= new S3FileDateTimeProperty(this, isCreatedAt: true);
 
     /// <inheritdoc />
-    public ICreatedAtProperty CreatedAt => _createdAt ??= new S3FileDateTimeProperty(this, isCreatedAt: true);
-
-    /// <inheritdoc />
-    public ILastModifiedAtProperty LastModifiedAt => _lastModifiedAt ??= new S3FileDateTimeProperty(this, isCreatedAt: false);
+    public ILastModifiedAtProperty LastModifiedAt => field ??= new S3FileDateTimeProperty(this, isCreatedAt: false);
 
     private sealed class S3FileDateTimeProperty(S3File file, bool isCreatedAt) : ICreatedAtProperty, ILastModifiedAtProperty
     {
