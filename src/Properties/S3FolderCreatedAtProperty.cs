@@ -42,6 +42,10 @@ internal sealed class S3FolderCreatedAtProperty(S3Folder folder)
         if (string.IsNullOrEmpty(markerKey))
             return;
 
+        var capabilities = S3ClientCapabilities.GetOrCreate(folder.AmazonS3Client);
+        if (capabilities.SupportsServerSideCopy == false)
+            return;
+
         try
         {
             var metadata = await GetMarkerMetadataAsync(folder, cancellationToken);
@@ -70,9 +74,16 @@ internal sealed class S3FolderCreatedAtProperty(S3Folder folder)
             }
 
             await folder.AmazonS3Client.CopyObjectAsync(copyRequest, cancellationToken);
+            capabilities.SupportsServerSideCopy = true;
+        }
+        catch (AmazonS3Exception ex) when (S3ClientCapabilities.ShouldFallbackToStreamCopy(ex))
+        {
+            capabilities.SupportsServerSideCopy = false;
         }
         catch (AmazonS3Exception)
         {
+            // Other S3 errors (e.g., marker object not found) are silently ignored
+            // since the metadata update is best-effort.
         }
     }
 
