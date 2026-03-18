@@ -7,11 +7,11 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: ${{ secrets.NUGET_API_KEY != '' }}
 
     steps:
       - name: Checkout
@@ -33,4 +33,4 @@ jobs:
         run: dotnet pack src/OwlCore.Storage.AmazonS3.csproj --configuration Release --no-build --output ./artifacts
 
       - name: Push to NuGet
-        run: dotnet nuget push "./artifacts/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source "https://api.nuget.org/v3/index.json" --skip-duplicate
+        run: dotnet nuget push "./artifacts/*.nupkg" --source "https://api.nuget.org/v3/index.json" --skip-duplicate

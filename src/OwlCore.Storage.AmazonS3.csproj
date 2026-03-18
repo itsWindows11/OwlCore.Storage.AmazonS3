@@ -5,6 +5,24 @@
     <LangVersion>14.0</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <PackageId>OwlCore.Storage.AmazonS3</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>itsWindows11;Arlodotdll</Authors>
+    <Description>Amazon S3 and S3-compatible storage implementation for OwlCore.Storage abstraction.</Description>
+    <PackageReleaseNotes>Initial public package release with S3 folder/file abstractions, stream-based read/write support, multipart uploads, and improved compatibility for S3-compatible providers.</PackageReleaseNotes>
+    <PackageTags>OwlCore;Storage;AmazonS3;S3;ObjectStorage</PackageTags>
+    <RepositoryUrl>https://github.com/itsWindows11/OwlCore.Storage.AmazonS3</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/itsWindows11/OwlCore.Storage.AmazonS3</PackageProjectUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageIcon Condition="Exists('logo.png')">logo.png</PackageIcon>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,6 +36,12 @@
     <PackageReference Include="System.Memory" Version="4.6.3" />
     <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
     <PackageReference Include="PolySharp" Version="1.15.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="" />
+    <None Include="..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="logo.png" Pack="true" PackagePath="" Condition="Exists('logo.png')" />
   </ItemGroup>
 
 </Project>
