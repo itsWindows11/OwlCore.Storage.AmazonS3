@@ -1,14 +1,11 @@
-namespace OwlCore.Storage.AmazonS3.ItemProperties;
+namespace OwlCore.Storage.AmazonS3.Properties;
 
-internal sealed class S3FileLastModifiedAtProperty(S3File file) : ILastModifiedAtProperty
+internal sealed class S3FileLastModifiedAtProperty(S3File file)
+    : SimpleModifiableStorageProperty<DateTime?>(
+        id: $"{file.Id}:LastModifiedAt",
+        name: "LastModifiedAt",
+        asyncGetter: file.GetLastModifiedAtValueAsync,
+        asyncSetter: file.SetLastModifiedAtValueAsync),
+    ILastModifiedAtProperty
 {
-    /// <inheritdoc />
-    public string Id => $"{file.Id}:LastModifiedAt";
-
-    /// <inheritdoc />
-    public string Name => "LastModifiedAt";
-
-    /// <inheritdoc />
-    public async Task<DateTime?> GetValueAsync(CancellationToken cancellationToken = default)
-        => await file.GetLastModifiedAtValueAsync(cancellationToken);
 }

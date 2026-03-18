@@ -1,14 +1,11 @@
-namespace OwlCore.Storage.AmazonS3.ItemProperties;
+namespace OwlCore.Storage.AmazonS3.Properties;
 
-internal sealed class S3FolderCreatedAtProperty(S3Folder folder) : ICreatedAtProperty
+internal sealed class S3FolderCreatedAtProperty(S3Folder folder)
+    : SimpleModifiableStorageProperty<DateTime?>(
+        id: $"{folder.Id}:CreatedAt",
+        name: "CreatedAt",
+        asyncGetter: folder.GetCreatedAtValueAsync,
+        asyncSetter: folder.SetCreatedAtValueAsync),
+    ICreatedAtProperty
 {
-    /// <inheritdoc />
-    public string Id => $"{folder.Id}:CreatedAt";
-
-    /// <inheritdoc />
-    public string Name => "CreatedAt";
-
-    /// <inheritdoc />
-    public Task<DateTime?> GetValueAsync(CancellationToken cancellationToken = default)
-        => folder.GetCreatedAtValueAsync(cancellationToken);
 }
