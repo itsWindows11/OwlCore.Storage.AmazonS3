@@ -7,10 +7,23 @@
     <Nullable>enable</Nullable>
 
     <PackageId>OwlCore.Storage.AmazonS3</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Authors>itsWindows11;Arlodotdll</Authors>
     <Description>Amazon S3 and S3-compatible storage implementation for OwlCore.Storage abstraction.</Description>
     <PackageReleaseNotes>
+		[0.1.1]
+		- Made impl. behavior more consistent w/ other impls
+		- Threw `FileAlreadyExistsException` instead of `IOException` when file or folder already exists.
+		- Used provided fallback methods.
+		- Consolidated copy/move logic into separate helper methods
+		- Consolidated properties into separate classes
+		- Improved property organization &amp; added modifiability
+		- Optimized stream based on read/write access mode
+		- Removed redundant fastpath for `GetFirstByNameAsync`
+		- Made tests rely on repo secrets instead of environment
+		- Changed the `IOExceptions` to `FileAlreadyExistsException` where appropriate
+		- Moved property methods to the respective property classes
+
 		[0.1.0]
 		Initial public package release with S3 folder/file abstractions, stream-based read/write support, multipart uploads, and improved compatibility for S3-compatible providers.
 	</PackageReleaseNotes>
