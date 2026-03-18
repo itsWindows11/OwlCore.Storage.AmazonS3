@@ -105,6 +105,8 @@ jobs:
       - name: Validate CI artifacts (workflow_run)
         if: steps.exists.outputs.exists != 'true' && github.event_name == 'workflow_run'
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $repo = "${{ github.repository }}"
           $runId = "${{ github.event.workflow_run.id }}"
