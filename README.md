@@ -7,21 +7,7 @@ Amazon S3 (and S3-compatible) storage implementation for [`OwlCore.Storage`](htt
 
 ## Target frameworks
 
-The library currently targets:
-
-- `netstandard2.0`
-- `net8.0`
-- `net9.0`
-- `net10.0`
-
-## Packages
-
-Main dependencies:
-
-- `AWSSDK.S3` (`4.0.19`)
-- `OwlCore.Storage` (`0.15.0`)
-
-For `netstandard2.0`, compatibility packages are included automatically (`System.Buffers`, `System.Memory`, `System.Threading.Tasks.Extensions`, `PolySharp`).
+The library currently targets `netstandard2.0`, `net8.0`, `net9.0`, `net10.0`.
 
 ## Main types
 
