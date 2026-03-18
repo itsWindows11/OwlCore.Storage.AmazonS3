@@ -167,10 +167,10 @@ public partial class S3Folder
         if (!overwrite)
         {
             if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken) is not null)
-                throw new IOException($"File '{destinationKey}' already exists.");
+                throw new FileAlreadyExistsException(normalizedName);
 
             if (await FolderExistsAsync(destinationKey, cancellationToken))
-                throw new IOException($"A folder already exists at '{destinationKey}/'.");
+                throw new FileAlreadyExistsException($"{destinationKey}/ (folder)");
         }
 
         try
