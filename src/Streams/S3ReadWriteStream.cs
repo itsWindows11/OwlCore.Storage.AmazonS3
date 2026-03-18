@@ -4,6 +4,16 @@ using System.Net;
 
 namespace OwlCore.Storage.AmazonS3.Streams;
 
+/// <summary>
+/// A seekable read/write stream over an S3 object that buffers data in fixed-size blocks,
+/// supports random access semantics, and commits changes back to S3 on disposal.
+/// </summary>
+/// <remarks>
+/// For small payloads, commits are uploaded as a single object put.
+/// For larger payloads, commits use multipart upload.
+/// The stream also performs optimistic concurrency checks against the source object's ETag
+/// when applicable.
+/// </remarks>
 public sealed partial class S3ReadWriteStream : Stream
 {
     private const int PartSize = 8 * 1024 * 1024;
@@ -28,10 +38,16 @@ public sealed partial class S3ReadWriteStream : Stream
     private bool _finalized;
     private bool _disposed;
 
+    /// <inheritdoc />
     public override bool CanRead => !_disposed && _accessMode != FileAccess.Write;
+
+    /// <inheritdoc />
     public override bool CanSeek => !_disposed;
+
+    /// <inheritdoc />
     public override bool CanWrite => !_disposed && _accessMode != FileAccess.Read;
 
+    /// <inheritdoc />
     public override long Length
     {
         get
@@ -49,6 +65,7 @@ public sealed partial class S3ReadWriteStream : Stream
         }
     }
 
+    /// <inheritdoc />
     public override long Position
     {
         get
@@ -100,6 +117,21 @@ public sealed partial class S3ReadWriteStream : Stream
         _length = sourceLength;
     }
 
+    /// <summary>
+    /// Creates a new <see cref="S3ReadWriteStream"/> for the specified S3 object key.
+    /// </summary>
+    /// <param name="amazonS3Client">The S3 client used for metadata checks, reads, and writes.</param>
+    /// <param name="bucketName">The target bucket name.</param>
+    /// <param name="key">The object key within <paramref name="bucketName"/>.</param>
+    /// <param name="accessMode">The requested stream access mode.</param>
+    /// <param name="cancellationToken">A token that can cancel the asynchronous initialization.</param>
+    /// <returns>A configured <see cref="S3ReadWriteStream"/> instance.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="accessMode"/> is outside supported values.
+    /// </exception>
+    /// <exception cref="FileNotFoundException">
+    /// Thrown when <paramref name="accessMode"/> is read-only and the object does not exist.
+    /// </exception>
     public static async Task<S3ReadWriteStream> CreateAsync(
         IAmazonS3 amazonS3Client,
         string bucketName,
@@ -136,6 +168,7 @@ public sealed partial class S3ReadWriteStream : Stream
         return new S3ReadWriteStream(amazonS3Client, bucketName, key, accessMode, sourceExists, sourceLength, sourceETag);
     }
 
+    /// <inheritdoc />
     public override void Flush()
     {
         _sync.Wait();
@@ -149,6 +182,7 @@ public sealed partial class S3ReadWriteStream : Stream
         }
     }
 
+    /// <inheritdoc />
     public override async Task FlushAsync(CancellationToken cancellationToken)
     {
         await _sync.WaitAsync(cancellationToken);
@@ -162,6 +196,7 @@ public sealed partial class S3ReadWriteStream : Stream
         }
     }
 
+    /// <inheritdoc />
     public override int Read(byte[] buffer, int offset, int count)
     {
         _sync.Wait();
@@ -185,6 +220,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 
 #if !NETSTANDARD2_0
+    /// <inheritdoc />
     public override int Read(Span<byte> buffer)
     {
         _sync.Wait();
@@ -207,6 +243,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 #endif
 
+    /// <inheritdoc />
     public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
 #if NETSTANDARD2_0
@@ -217,6 +254,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 
 #if !NETSTANDARD2_0
+    /// <inheritdoc />
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
         await _sync.WaitAsync(cancellationToken);
@@ -239,6 +277,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 #endif
 
+    /// <inheritdoc />
     public override long Seek(long offset, SeekOrigin origin)
     {
         _sync.Wait();
@@ -266,6 +305,7 @@ public sealed partial class S3ReadWriteStream : Stream
         }
     }
 
+    /// <inheritdoc />
     public override void SetLength(long value)
     {
         _sync.Wait();
@@ -306,6 +346,7 @@ public sealed partial class S3ReadWriteStream : Stream
         }
     }
 
+    /// <inheritdoc />
     public override void Write(byte[] buffer, int offset, int count)
     {
         _sync.Wait();
@@ -325,6 +366,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 
 #if !NETSTANDARD2_0
+    /// <inheritdoc />
     public override void Write(ReadOnlySpan<byte> buffer)
     {
         _sync.Wait();
@@ -343,6 +385,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 #endif
 
+    /// <inheritdoc />
     public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
 #if NETSTANDARD2_0
@@ -353,6 +396,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 
 #if !NETSTANDARD2_0
+    /// <inheritdoc />
     public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
     {
         await _sync.WaitAsync(cancellationToken);
@@ -371,6 +415,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 #endif
 
+    /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
         if (!disposing)
@@ -417,6 +462,7 @@ public sealed partial class S3ReadWriteStream : Stream
     }
 
 #if !NETSTANDARD2_0
+    /// <inheritdoc />
     public override async ValueTask DisposeAsync()
     {
         if (_disposed)
