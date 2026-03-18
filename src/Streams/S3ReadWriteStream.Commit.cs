@@ -39,11 +39,7 @@ public sealed partial class S3ReadWriteStream
             if (_length <= PartSize)
             {
                 var buffer = new byte[_length];
-#if NETSTANDARD2_0
-                await ReadAtCoreAsync(0, buffer, 0, (int)_length, cancellationToken);
-#else
                 await ReadAtCoreAsync(0, buffer.AsMemory(0, (int)_length), cancellationToken);
-#endif
                 using var singlePutStream = new MemoryStream(buffer, writable: false);
                 await _amazonS3Client.PutObjectAsync(new PutObjectRequest
                 {
@@ -73,11 +69,7 @@ public sealed partial class S3ReadWriteStream
                 for (long start = 0; start < _length; start += PartSize)
                 {
                     var partLength = (int)Math.Min(PartSize, _length - start);
-#if NETSTANDARD2_0
-                    await ReadAtCoreAsync(start, rentedPartBuffer, 0, partLength, cancellationToken);
-#else
                     await ReadAtCoreAsync(start, rentedPartBuffer.AsMemory(0, partLength), cancellationToken);
-#endif
 
                     using var partStream = new MemoryStream(rentedPartBuffer, 0, partLength, writable: false, publiclyVisible: true);
                     var uploadPart = await _amazonS3Client.UploadPartAsync(new UploadPartRequest

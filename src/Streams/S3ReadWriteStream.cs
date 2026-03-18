@@ -174,11 +174,7 @@ public sealed partial class S3ReadWriteStream : Stream
             if (toRead == 0)
                 return 0;
 
-#if NETSTANDARD2_0
-            ReadAtCoreSync(_position, buffer, offset, toRead);
-#else
             ReadAtCoreSync(_position, buffer.AsSpan(offset, toRead));
-#endif
             _position += toRead;
             return toRead;
         }
@@ -317,11 +313,7 @@ public sealed partial class S3ReadWriteStream : Stream
         {
             EnsureCanWrite();
             ValidateBufferArgs(buffer, offset, count);
-#if NETSTANDARD2_0
-            WriteAtCoreSync(_position, buffer, offset, count);
-#else
             WriteAtCoreSync(_position, buffer.AsSpan(offset, count));
-#endif
             _position += count;
             _length = Math.Max(_length, _position);
             _hasWrites = true;
