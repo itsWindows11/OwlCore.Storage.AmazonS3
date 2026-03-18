@@ -138,8 +138,8 @@ jobs:
           merge-multiple: true
           path: .
 
-      - name: Restore (manual fallback)
-        if: steps.exists.outputs.exists != 'true' && github.event_name == 'workflow_dispatch'
+      - name: Restore
+        if: steps.exists.outputs.exists != 'true'
         run: dotnet restore src/OwlCore.Storage.AmazonS3.csproj
 
       - name: Build (manual fallback)
