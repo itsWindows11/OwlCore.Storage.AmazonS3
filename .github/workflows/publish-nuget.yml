@@ -1,21 +1,27 @@
 name: Publish NuGet
 
 on:
-  push:
-    branches: [ "main" ]
+  workflow_run:
+    workflows: [ "CI" ]
+    types: [ completed ]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
+  actions: read
 
 jobs:
   publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    environment: OcStorageTests
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -23,14 +29,142 @@ jobs:
           dotnet-version: |
             10.0.x
 
-      - name: Restore
+      - name: Read package metadata
+        id: meta
+        shell: pwsh
+        run: |
+          [xml]$proj = Get-Content "src/OwlCore.Storage.AmazonS3.csproj"
+
+          $version = $null
+          $notesRaw = $null
+
+          foreach ($pg in $proj.Project.PropertyGroup) {
+            if (-not $version -and $pg.Version) { $version = [string]$pg.Version }
+            if (-not $notesRaw -and $pg.PackageReleaseNotes) { $notesRaw = [string]$pg.PackageReleaseNotes }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "Version was not found in src/OwlCore.Storage.AmazonS3.csproj"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($notesRaw)) {
+            $notes = "No release notes provided in PackageReleaseNotes."
+          }
+          else {
+            $notesText = $notesRaw -replace "`r`n", "`n"
+            $pattern = "(?ms)^\s*\[(?<ver>[^\]]+)\]\s*(?<body>.*?)(?=^\s*\[[^\]]+\]\s*|\z)"
+            $matches = [regex]::Matches($notesText, $pattern)
+
+            $selected = $null
+            foreach ($m in $matches) {
+              if ($m.Groups['ver'].Value.Trim() -eq $version) {
+                $selected = $m.Groups['body'].Value.Trim()
+                break
+              }
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($selected)) {
+              $notes = $selected
+            }
+            else {
+              $notes = $notesText.Trim()
+            }
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "notes<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $notes | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Check if version already exists on NuGet
+        id: exists
+        shell: pwsh
+        run: |
+          $packageId = "owlcore.storage.amazons3"
+          $version = "${{ steps.meta.outputs.version }}"
+          $indexUrl = "https://api.nuget.org/v3-flatcontainer/$packageId/index.json"
+
+          try {
+            $resp = Invoke-RestMethod -Uri $indexUrl -Method Get -TimeoutSec 30
+            $exists = $false
+            if ($resp.versions) {
+              $exists = $resp.versions -contains $version
+            }
+            "exists=$exists" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+          catch {
+            Write-Host "NuGet version check failed. Continuing with publish attempt."
+            "exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Skip publish (version already on NuGet)
+        if: steps.exists.outputs.exists == 'true'
+        run: echo "Version ${{ steps.meta.outputs.version }} already exists on NuGet. Skipping publish and release."
+
+      - name: Validate CI artifacts (workflow_run)
+        if: steps.exists.outputs.exists != 'true' && github.event_name == 'workflow_run'
+        shell: pwsh
+        run: |
+          $repo = "${{ github.repository }}"
+          $runId = "${{ github.event.workflow_run.id }}"
+          $url = "https://api.github.com/repos/$repo/actions/runs/$runId/artifacts?per_page=100"
+
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; "X-GitHub-Api-Version" = "2022-11-28" }
+          $resp = Invoke-RestMethod -Method Get -Uri $url -Headers $headers
+          $names = @($resp.artifacts | ForEach-Object { $_.name })
+
+          $requiredBuild = @("build-outputs-netstandard2.0", "build-outputs-net8.0", "build-outputs-net9.0", "build-outputs-net10.0")
+          $requiredTests = @("test-results-net8.0", "test-results-net9.0", "test-results-net10.0")
+
+          $missingBuild = $requiredBuild | Where-Object { $_ -notin $names }
+          $missingTests = $requiredTests | Where-Object { $_ -notin $names }
+
+          if ($missingBuild.Count -gt 0 -or $missingTests.Count -gt 0) {
+            Write-Error ("Required CI artifacts missing. Build missing: {0}; Test missing: {1}" -f ($missingBuild -join ', '), ($missingTests -join ', '))
+            exit 1
+          }
+
+      - name: Download CI build outputs (workflow_run)
+        if: steps.exists.outputs.exists != 'true' && github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: build-outputs-*
+          merge-multiple: true
+          path: .
+
+      - name: Restore (manual fallback)
+        if: steps.exists.outputs.exists != 'true' && github.event_name == 'workflow_dispatch'
         run: dotnet restore src/OwlCore.Storage.AmazonS3.csproj
 
-      - name: Build
+      - name: Build (manual fallback)
+        if: steps.exists.outputs.exists != 'true' && github.event_name == 'workflow_dispatch'
         run: dotnet build src/OwlCore.Storage.AmazonS3.csproj --configuration Release --no-restore
 
       - name: Pack
+        if: steps.exists.outputs.exists != 'true'
         run: dotnet pack src/OwlCore.Storage.AmazonS3.csproj --configuration Release --no-build --output ./artifacts
 
+      - name: NuGet login (OIDC)
+        if: steps.exists.outputs.exists != 'true'
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push to NuGet
-        run: dotnet nuget push "./artifacts/*.nupkg" --source "https://api.nuget.org/v3/index.json" --skip-duplicate
+        if: steps.exists.outputs.exists != 'true'
+        run: dotnet nuget push "./artifacts/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source "https://api.nuget.org/v3/index.json" --skip-duplicate
+
+      - name: Create GitHub Release
+        if: steps.exists.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          body: ${{ steps.meta.outputs.notes }}
+          draft: false
+          prerelease: false

@@ -10,7 +10,10 @@
     <Version>0.1.0</Version>
     <Authors>itsWindows11;Arlodotdll</Authors>
     <Description>Amazon S3 and S3-compatible storage implementation for OwlCore.Storage abstraction.</Description>
-    <PackageReleaseNotes>Initial public package release with S3 folder/file abstractions, stream-based read/write support, multipart uploads, and improved compatibility for S3-compatible providers.</PackageReleaseNotes>
+    <PackageReleaseNotes>
+		[0.1.0]
+		Initial public package release with S3 folder/file abstractions, stream-based read/write support, multipart uploads, and improved compatibility for S3-compatible providers.
+	</PackageReleaseNotes>
     <PackageTags>OwlCore;Storage;AmazonS3;S3;ObjectStorage</PackageTags>
     <RepositoryUrl>https://github.com/itsWindows11/OwlCore.Storage.AmazonS3</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
