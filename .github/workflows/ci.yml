@@ -16,8 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
-        tfm: [ net8.0, net9.0, net10.0 ]
+        tfm: [ netstandard2.0, net8.0, net9.0, net10.0 ]
 
     steps:
       - name: Checkout
@@ -58,6 +59,7 @@ jobs:
     environment: OcStorageTests
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
         tfm: [ netstandard2.0, net8.0, net9.0, net10.0 ]
 
