@@ -390,7 +390,7 @@ public partial class S3Folder :
             return await fallback(this, sourceFile, sourceFolder, overwrite, cancellationToken);
 
         var result = await TryCreateS3MoveAsync(s3Source, sourceFile.Name, overwrite, cancellationToken);
-        return result ?? await fallback(sourceFolder, sourceFile, this, overwrite, cancellationToken);
+        return result ?? await fallback(this, sourceFile, sourceFolder, overwrite, cancellationToken);
     }
 
     /// <inheritdoc cref="IMoveRenamedFrom.MoveFromAsync(IChildFile, IModifiableFolder, bool, string, CancellationToken, MoveRenamedFromDelegate)"/>
@@ -410,6 +410,6 @@ public partial class S3Folder :
             throw new ArgumentException("Value cannot be null or whitespace.", nameof(desiredName));
 
         var result = await TryCreateS3MoveAsync(s3Source, fileName, overwrite, cancellationToken);
-        return result ?? await fallback(sourceFolder, sourceFile, this, overwrite, desiredName, cancellationToken);
+        return result ?? await fallback(this, sourceFile, sourceFolder, overwrite, desiredName, cancellationToken);
     }
 }
