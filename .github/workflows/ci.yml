@@ -58,7 +58,6 @@ jobs:
     name: Test (Supabase S3 ${{ matrix.tfm }})
     runs-on: ubuntu-latest
     needs: build
-    environment: OcStorageTests
     strategy:
       fail-fast: false
       max-parallel: 3
