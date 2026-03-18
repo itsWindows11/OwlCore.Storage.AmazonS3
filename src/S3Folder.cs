@@ -12,7 +12,6 @@ public partial class S3Folder :
     IModifiableFolder,
     IChildFolder,
     IGetItem,
-    IGetFirstByName,
     IGetItemRecursive,
     ICreateRenamedCopyOf,
     IMoveRenamedFrom
@@ -313,21 +312,6 @@ public partial class S3Folder :
             return new S3Folder(AmazonS3Client, BucketName, fullId);
 
         throw new FileNotFoundException($"Item '{fullId}' was not found.");
-    }
-
-    /// <inheritdoc />
-    public async Task<IStorableChild> GetFirstByNameAsync(string name, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Value cannot be null or whitespace.", nameof(name));
-
-        await foreach (var item in GetItemsAsync(StorableType.All, cancellationToken))
-        {
-            if (string.Equals(item.Name, name, StringComparison.Ordinal))
-                return item;
-        }
-
-        throw new FileNotFoundException($"No item named '{name}' was found in folder '{Id}'.");
     }
 
     /// <inheritdoc />
