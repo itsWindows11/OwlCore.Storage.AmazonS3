@@ -33,13 +33,15 @@ jobs:
       - name: Restore library
         run: dotnet restore src/OwlCore.Storage.AmazonS3.csproj
 
-      - name: Restore tests (${{ matrix.tfm }})
-        run: dotnet restore tests/OwlCore.Storage.AmazonS3.Tests.csproj -p:TargetFramework=${{ matrix.tfm }}
-
       - name: Build library (${{ matrix.tfm }})
         run: dotnet build src/OwlCore.Storage.AmazonS3.csproj --framework ${{ matrix.tfm }} --configuration Release --no-restore
 
+      - name: Restore tests (${{ matrix.tfm }})
+        if: matrix.tfm != 'netstandard2.0'
+        run: dotnet restore tests/OwlCore.Storage.AmazonS3.Tests.csproj -p:TargetFramework=${{ matrix.tfm }}
+
       - name: Build tests (${{ matrix.tfm }})
+        if: matrix.tfm != 'netstandard2.0'
         run: dotnet build tests/OwlCore.Storage.AmazonS3.Tests.csproj -p:TargetFramework=${{ matrix.tfm }} --configuration Release --no-restore
 
       - name: Upload build outputs (${{ matrix.tfm }})
@@ -59,9 +61,9 @@ jobs:
     environment: OcStorageTests
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 3
       matrix:
-        tfm: [ netstandard2.0, net8.0, net9.0, net10.0 ]
+        tfm: [ net8.0, net9.0, net10.0 ]
 
     env:
       SUPABASE_S3_ENDPOINT: ${{ secrets.SUPABASE_S3_ENDPOINT }}
