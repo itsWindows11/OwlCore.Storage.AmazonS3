@@ -100,4 +100,13 @@ jobs:
 
       - name: Test
         if: steps.secrets_check.outputs.run_tests == 'true'
-        run: dotnet test tests/OwlCore.Storage.AmazonS3.Tests.csproj --configuration Release --no-build --settings ci.runsettings
+        run: dotnet test tests/OwlCore.Storage.AmazonS3.Tests.csproj --configuration Release --no-build --settings ci.runsettings --verbosity detailed --logger "console;verbosity=detailed" --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: steps.secrets_check.outputs.run_tests == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            **/TestResults/**/*.trx
+            test-results.trx
