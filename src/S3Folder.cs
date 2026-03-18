@@ -364,73 +364,37 @@ public partial class S3Folder :
     }
 
     /// <inheritdoc cref="ICreateCopyOf.CreateCopyOfAsync(IFile, bool, CancellationToken, CreateCopyOfDelegate)"/>
-    public Task<IChildFile> CreateCopyOfAsync(IFile sourceFile, bool overwrite = false, CancellationToken cancellationToken = default, CreateCopyOfDelegate? fallback = null)
+    public async Task<IChildFile> CreateCopyOfAsync(IFile sourceFile, bool overwrite, CancellationToken cancellationToken, CreateCopyOfDelegate fallback)
     {
         if (sourceFile is null)
             throw new ArgumentNullException(nameof(sourceFile));
 
-        return CreateCopyOfAsync(sourceFile, overwrite, sourceFile.Name, cancellationToken);
+        if (sourceFile is not S3File s3Source)
+            return await fallback(this, sourceFile, overwrite, cancellationToken);
+
+        var result = await TryCreateS3CopyAsync(s3Source, sourceFile.Name, overwrite, cancellationToken);
+        return result ?? await fallback(this, sourceFile, overwrite, cancellationToken);
     }
 
     /// <inheritdoc cref="ICreateRenamedCopyOf.CreateCopyOfAsync(IFile, bool, string, CancellationToken, CreateRenamedCopyOfDelegate)"/>
-    public async Task<IChildFile> CreateCopyOfAsync(IFile sourceFile, bool overwrite = false, string desiredName = "", CancellationToken cancellationToken = default, CreateRenamedCopyOfDelegate? fallback = null)
+    public async Task<IChildFile> CreateCopyOfAsync(IFile sourceFile, bool overwrite, string desiredName, CancellationToken cancellationToken, CreateRenamedCopyOfDelegate fallback)
     {
         if (sourceFile is null)
             throw new ArgumentNullException(nameof(sourceFile));
+
+        if (sourceFile is not S3File s3Source)
+            return await fallback(this, sourceFile, overwrite, desiredName, cancellationToken);
 
         var fileName = string.IsNullOrWhiteSpace(desiredName) ? sourceFile.Name : desiredName;
         if (string.IsNullOrWhiteSpace(fileName))
             throw new ArgumentException("Value cannot be null or whitespace.", nameof(desiredName));
 
-        var normalizedName = Normalize(fileName);
-        var destinationKey = CombinePath(Path, normalizedName);
-
-        if (!overwrite)
-        {
-            if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken) is not null)
-                throw new IOException($"File '{destinationKey}' already exists.");
-
-            if (await FolderExistsAsync(destinationKey, cancellationToken))
-                throw new IOException($"A folder already exists at '{destinationKey}/'.");
-        }
-
-        if (sourceFile is S3File s3Source)
-        {
-            try
-            {
-                await AmazonS3Client.CopyObjectAsync(new CopyObjectRequest
-                {
-                    SourceBucket = s3Source.BucketName,
-                    SourceKey = s3Source.Key,
-                    DestinationBucket = BucketName,
-                    DestinationKey = destinationKey
-                }, cancellationToken);
-
-                return new S3File(AmazonS3Client, BucketName, Path, normalizedName);
-            }
-            // Some S3-compatible services (e.g. Supabase) may not support server-side copying.
-            // In that case, fall back to a stream copy.
-            catch (AmazonS3Exception ex) when (ShouldFallbackToStreamCopy(ex))
-            {
-            }
-        }
-
-        var destinationFile = await CreateFileAsync(normalizedName, overwrite, cancellationToken);
-
-#if NETSTANDARD2_0
-        using var sourceStream = await sourceFile.OpenStreamAsync(FileAccess.Read, cancellationToken);
-        using var destinationStream = await destinationFile.OpenStreamAsync(FileAccess.Write, cancellationToken);
-#else
-        await using var sourceStream = await sourceFile.OpenStreamAsync(FileAccess.Read, cancellationToken);
-        await using var destinationStream = await destinationFile.OpenStreamAsync(FileAccess.Write, cancellationToken);
-#endif
-        await sourceStream.CopyToAsync(destinationStream, 81920, cancellationToken);
-
-        return destinationFile;
+        var result = await TryCreateS3CopyAsync(s3Source, fileName, overwrite, cancellationToken);
+        return result ?? await fallback(this, sourceFile, overwrite, desiredName, cancellationToken);
     }
 
     /// <inheritdoc cref="IMoveFrom.MoveFromAsync(IChildFile, IModifiableFolder, bool, CancellationToken, MoveFromDelegate)"/>
-    public Task<IChildFile> MoveFromAsync(IChildFile sourceFile, IModifiableFolder sourceFolder, bool overwrite = false, CancellationToken cancellationToken = default, MoveFromDelegate? fallback = null)
+    public async Task<IChildFile> MoveFromAsync(IChildFile sourceFile, IModifiableFolder sourceFolder, bool overwrite, CancellationToken cancellationToken, MoveFromDelegate fallback)
     {
         if (sourceFile is null)
             throw new ArgumentNullException(nameof(sourceFile));
@@ -438,62 +402,30 @@ public partial class S3Folder :
         if (sourceFolder is null)
             throw new ArgumentNullException(nameof(sourceFolder));
 
-        return MoveFromAsync(sourceFile, sourceFolder, overwrite, sourceFile.Name, cancellationToken);
+        if (sourceFile is not S3File s3Source)
+            return await fallback(this, sourceFile, sourceFolder, overwrite, cancellationToken);
+
+        var result = await TryCreateS3MoveAsync(s3Source, sourceFile.Name, overwrite, cancellationToken);
+        return result ?? await fallback(sourceFolder, sourceFile, this, overwrite, cancellationToken);
     }
 
     /// <inheritdoc cref="IMoveRenamedFrom.MoveFromAsync(IChildFile, IModifiableFolder, bool, string, CancellationToken, MoveRenamedFromDelegate)"/>
-    public async Task<IChildFile> MoveFromAsync(IChildFile sourceFile, IModifiableFolder sourceFolder, bool overwrite = false, string desiredName = "", CancellationToken cancellationToken = default, MoveRenamedFromDelegate? fallback = null)
+    public async Task<IChildFile> MoveFromAsync(IChildFile sourceFile, IModifiableFolder sourceFolder, bool overwrite, string desiredName, CancellationToken cancellationToken, MoveRenamedFromDelegate fallback)
     {
         if (sourceFile is null)
             throw new ArgumentNullException(nameof(sourceFile));
 
         if (sourceFolder is null)
             throw new ArgumentNullException(nameof(sourceFolder));
+
+        if (sourceFile is not S3File s3Source)
+            return await fallback(this, sourceFile, sourceFolder, overwrite, desiredName, cancellationToken);
 
         var fileName = string.IsNullOrWhiteSpace(desiredName) ? sourceFile.Name : desiredName;
         if (string.IsNullOrWhiteSpace(fileName))
             throw new ArgumentException("Value cannot be null or whitespace.", nameof(desiredName));
 
-        var normalizedName = Normalize(fileName);
-        var destinationKey = CombinePath(Path, normalizedName);
-
-        if (!overwrite)
-        {
-            if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken) is not null)
-                throw new IOException($"File '{destinationKey}' already exists.");
-
-            if (await FolderExistsAsync(destinationKey, cancellationToken))
-                throw new IOException($"A folder already exists at '{destinationKey}/'.");
-        }
-
-        if (sourceFile is S3File s3Source)
-        {
-            try
-            {
-                await AmazonS3Client.CopyObjectAsync(new CopyObjectRequest
-                {
-                    SourceBucket = s3Source.BucketName,
-                    SourceKey = s3Source.Key,
-                    DestinationBucket = BucketName,
-                    DestinationKey = destinationKey
-                }, cancellationToken);
-
-                await s3Source.AmazonS3Client.DeleteObjectAsync(new DeleteObjectRequest
-                {
-                    BucketName = s3Source.BucketName,
-                    Key = s3Source.Key
-                }, cancellationToken);
-
-                return new S3File(AmazonS3Client, BucketName, Path, normalizedName);
-            }
-            catch (AmazonS3Exception ex) when (ShouldFallbackToStreamCopy(ex))
-            {
-            }
-        }
-
-        var copiedItem = await CreateCopyOfAsync(sourceFile, overwrite, normalizedName, cancellationToken);
-        await sourceFolder.DeleteAsync(sourceFile, cancellationToken);
-
-        return copiedItem;
+        var result = await TryCreateS3MoveAsync(s3Source, fileName, overwrite, cancellationToken);
+        return result ?? await fallback(sourceFolder, sourceFile, this, overwrite, desiredName, cancellationToken);
     }
 }

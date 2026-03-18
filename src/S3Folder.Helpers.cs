@@ -124,4 +124,76 @@ public partial class S3Folder
         createdAt = default;
         return false;
     }
+
+    private async Task<IChildFile?> TryCreateS3CopyAsync(S3File s3Source, string destinationName, bool overwrite, CancellationToken cancellationToken)
+    {
+        var normalizedName = Normalize(destinationName);
+        var destinationKey = CombinePath(Path, normalizedName);
+
+        if (!overwrite)
+        {
+            if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken) is not null)
+                throw new FileAlreadyExistsException(normalizedName);
+
+            if (await FolderExistsAsync(destinationKey, cancellationToken))
+                throw new FileAlreadyExistsException($"{destinationKey}/ (folder)");
+        }
+
+        try
+        {
+            await AmazonS3Client.CopyObjectAsync(new CopyObjectRequest
+            {
+                SourceBucket = s3Source.BucketName,
+                SourceKey = s3Source.Key,
+                DestinationBucket = BucketName,
+                DestinationKey = destinationKey
+            }, cancellationToken);
+
+            return new S3File(AmazonS3Client, BucketName, Path, normalizedName);
+        }
+        // Some S3-compatible services (e.g. Supabase) may not support server-side copying.
+        // In that case, fall back to a stream copy.
+        catch (AmazonS3Exception ex) when (ShouldFallbackToStreamCopy(ex))
+        {
+            return null;
+        }
+    }
+
+    private async Task<IChildFile?> TryCreateS3MoveAsync(S3File s3Source, string destinationName, bool overwrite, CancellationToken cancellationToken)
+    {
+        var normalizedName = Normalize(destinationName);
+        var destinationKey = CombinePath(Path, normalizedName);
+
+        if (!overwrite)
+        {
+            if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken) is not null)
+                throw new IOException($"File '{destinationKey}' already exists.");
+
+            if (await FolderExistsAsync(destinationKey, cancellationToken))
+                throw new IOException($"A folder already exists at '{destinationKey}/'.");
+        }
+
+        try
+        {
+            await AmazonS3Client.CopyObjectAsync(new CopyObjectRequest
+            {
+                SourceBucket = s3Source.BucketName,
+                SourceKey = s3Source.Key,
+                DestinationBucket = BucketName,
+                DestinationKey = destinationKey
+            }, cancellationToken);
+
+            await s3Source.AmazonS3Client.DeleteObjectAsync(new DeleteObjectRequest
+            {
+                BucketName = s3Source.BucketName,
+                Key = s3Source.Key
+            }, cancellationToken);
+
+            return new S3File(AmazonS3Client, BucketName, Path, normalizedName);
+        }
+        catch (AmazonS3Exception ex) when (ShouldFallbackToStreamCopy(ex))
+        {
+            return null;
+        }
+    }
 }
