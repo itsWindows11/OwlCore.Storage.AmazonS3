@@ -13,6 +13,10 @@ namespace OwlCore.Storage.AmazonS3.Streams;
 /// For larger payloads, commits use multipart upload.
 /// The stream also performs optimistic concurrency checks against the source object's ETag
 /// when applicable.
+/// 
+/// For read-only access, the source block cache is maintained but dirty blocks are not tracked.
+/// For write-only access, the source block cache is not maintained and only dirty blocks are tracked.
+/// For read-write access, both caches are maintained for full functionality.
 /// </remarks>
 public sealed partial class S3ReadWriteStream : Stream
 {
@@ -24,8 +28,8 @@ public sealed partial class S3ReadWriteStream : Stream
     private readonly string _key;
     private readonly FileAccess _accessMode;
 
-    private readonly Dictionary<long, byte[]> _dirtyBlocks = new Dictionary<long, byte[]>();
-    private readonly Dictionary<long, byte[]> _sourceBlockCache = new Dictionary<long, byte[]>();
+    private readonly Dictionary<long, byte[]> _dirtyBlocks;
+    private readonly Dictionary<long, byte[]> _sourceBlockCache;
     private readonly SemaphoreSlim _sync = new SemaphoreSlim(1, 1);
 
     private readonly bool _sourceExists;
@@ -114,7 +118,16 @@ public sealed partial class S3ReadWriteStream : Stream
         _sourceExists = sourceExists;
         _sourceLength = sourceLength;
         _sourceETag = sourceETag;
-        _length = sourceLength;
+
+        _length = sourceExists ? sourceLength : 0;
+        _position = 0;
+        _hasWrites = false;
+        _finalized = false;
+        _disposed = false;
+
+        // Optimize memory usage based on access mode
+        _dirtyBlocks = accessMode != FileAccess.Read ? new Dictionary<long, byte[]>() : null!;
+        _sourceBlockCache = accessMode != FileAccess.Write ? new Dictionary<long, byte[]>() : null!;
     }
 
     /// <summary>

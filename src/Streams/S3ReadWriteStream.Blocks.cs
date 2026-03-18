@@ -6,29 +6,42 @@ public sealed partial class S3ReadWriteStream
 {
     private byte[] GetWritableBlockSync(long blockIndex)
     {
-        if (_dirtyBlocks.TryGetValue(blockIndex, out var dirty))
+        // For write-only mode, dirty blocks are always present
+        if (_dirtyBlocks != null && _dirtyBlocks.TryGetValue(blockIndex, out var dirty))
             return dirty;
 
         var sourceBlock = GetSourceBlockSync(blockIndex);
         var clone = new byte[BlockSize];
         Buffer.BlockCopy(sourceBlock, 0, clone, 0, BlockSize);
+
+        // Only cache if we have dirty block tracking
+        if (_dirtyBlocks != null)
+            _dirtyBlocks[blockIndex] = clone;
+
         return clone;
     }
 
     private async Task<byte[]> GetWritableBlockAsync(long blockIndex, CancellationToken cancellationToken)
     {
-        if (_dirtyBlocks.TryGetValue(blockIndex, out var dirty))
+        // For write-only mode, dirty blocks are always present
+        if (_dirtyBlocks != null && _dirtyBlocks.TryGetValue(blockIndex, out var dirty))
             return dirty;
 
         var sourceBlock = await GetSourceBlockAsync(blockIndex, cancellationToken);
         var clone = new byte[BlockSize];
         Buffer.BlockCopy(sourceBlock, 0, clone, 0, BlockSize);
+
+        // Only cache if we have dirty block tracking
+        if (_dirtyBlocks != null)
+            _dirtyBlocks[blockIndex] = clone;
+
         return clone;
     }
 
     private byte[] GetReadableBlockSync(long blockIndex)
     {
-        if (_dirtyBlocks.TryGetValue(blockIndex, out var dirty))
+        // Check dirty blocks if they exist (read-write or write-only mode)
+        if (_dirtyBlocks != null && _dirtyBlocks.TryGetValue(blockIndex, out var dirty))
             return dirty;
 
         return GetSourceBlockSync(blockIndex);
@@ -36,7 +49,8 @@ public sealed partial class S3ReadWriteStream
 
     private async Task<byte[]> GetReadableBlockAsync(long blockIndex, CancellationToken cancellationToken)
     {
-        if (_dirtyBlocks.TryGetValue(blockIndex, out var dirty))
+        // Check dirty blocks if they exist (read-write or write-only mode)
+        if (_dirtyBlocks != null && _dirtyBlocks.TryGetValue(blockIndex, out var dirty))
             return dirty;
 
         return await GetSourceBlockAsync(blockIndex, cancellationToken);
@@ -47,7 +61,8 @@ public sealed partial class S3ReadWriteStream
 
     private async Task<byte[]> GetSourceBlockAsync(long blockIndex, CancellationToken cancellationToken)
     {
-        if (_sourceBlockCache.TryGetValue(blockIndex, out var cached))
+        // Use cache only if source block cache is available (read-write or read-only mode)
+        if (_sourceBlockCache != null && _sourceBlockCache.TryGetValue(blockIndex, out var cached))
             return cached;
 
         var block = new byte[BlockSize];
@@ -86,7 +101,10 @@ public sealed partial class S3ReadWriteStream
             }
         }
 
-        _sourceBlockCache[blockIndex] = block;
+        // Cache only if source block cache is available
+        if (_sourceBlockCache != null)
+            _sourceBlockCache[blockIndex] = block;
+
         return block;
     }
 }

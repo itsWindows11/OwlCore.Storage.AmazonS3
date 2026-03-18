@@ -100,10 +100,13 @@ public sealed partial class S3ReadWriteStream
 
             var block = GetWritableBlockSync(blockIndex);
             source.Slice(sourceOffset, bytesThisBlock).CopyTo(block.AsSpan(blockOffset, bytesThisBlock));
-            _dirtyBlocks[blockIndex] = block;
+            
+            // Only track dirty blocks if we have dirty block tracking enabled
+            if (_dirtyBlocks != null)
+                _dirtyBlocks[blockIndex] = block;
 
-            writeOffset += bytesThisBlock;
             sourceOffset += bytesThisBlock;
+            writeOffset += bytesThisBlock;
             remaining -= bytesThisBlock;
         }
     }
@@ -121,11 +124,14 @@ public sealed partial class S3ReadWriteStream
             var bytesThisBlock = Math.Min(remaining, BlockSize - blockOffset);
 
             var block = await GetWritableBlockAsync(blockIndex, cancellationToken);
-            source.Slice(sourceOffset, bytesThisBlock).Span.CopyTo(block.AsSpan(blockOffset, bytesThisBlock));
-            _dirtyBlocks[blockIndex] = block;
+            source.Slice(sourceOffset, bytesThisBlock).CopyTo(block.AsMemory(blockOffset, bytesThisBlock));
+            
+            // Only track dirty blocks if we have dirty block tracking enabled
+            if (_dirtyBlocks != null)
+                _dirtyBlocks[blockIndex] = block;
 
-            writeOffset += bytesThisBlock;
             sourceOffset += bytesThisBlock;
+            writeOffset += bytesThisBlock;
             remaining -= bytesThisBlock;
         }
     }
