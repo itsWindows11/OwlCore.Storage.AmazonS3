@@ -12,6 +12,11 @@ public partial class S3File
     /// <param name="path">The parent folder path inside <paramref name="bucketName"/>.</param>
     /// <param name="key">The file key or file name.</param>
     public S3File(IAmazonS3 amazonS3, string bucketName, string path, string key)
+        : this(amazonS3, bucketName, BuildObjectKey(path, key), nameOverride: null, assumeNormalized: true)
+    {
+    }
+
+    internal S3File(IAmazonS3 amazonS3, string bucketName, string objectKey, string? nameOverride, bool assumeNormalized)
     {
         if (amazonS3 is null)
             throw new ArgumentNullException(nameof(amazonS3));
@@ -19,23 +24,40 @@ public partial class S3File
         if (string.IsNullOrWhiteSpace(bucketName))
             throw new ArgumentException("Value cannot be null or whitespace.", nameof(bucketName));
 
+        var normalizedObjectKey = assumeNormalized
+            ? (objectKey ?? string.Empty)
+            : (objectKey ?? string.Empty).Replace('\\', '/').Trim('/');
+
+        if (string.IsNullOrWhiteSpace(normalizedObjectKey))
+            throw new ArgumentException("Value cannot be null or whitespace.", nameof(objectKey));
+
+        AmazonS3Client = amazonS3;
+        BucketName = bucketName;
+        Key = normalizedObjectKey;
+        Id = normalizedObjectKey;
+
+        if (nameOverride is { Length: > 0 } resolvedName)
+        {
+            Name = resolvedName;
+        }
+        else
+        {
+            var lastSlashIndex = normalizedObjectKey.LastIndexOf('/');
+            Name = lastSlashIndex >= 0 ? normalizedObjectKey[(lastSlashIndex + 1)..] : normalizedObjectKey;
+        }
+    }
+
+    private static string BuildObjectKey(string path, string key)
+    {
         if (string.IsNullOrWhiteSpace(key))
             throw new ArgumentException("Value cannot be null or whitespace.", nameof(key));
 
         var normalizedPath = (path ?? string.Empty).Replace('\\', '/').Trim('/');
         var normalizedKey = key.Replace('\\', '/').Trim('/');
 
-        AmazonS3Client = amazonS3;
-        BucketName = bucketName;
-
-        Key = string.IsNullOrEmpty(normalizedPath)
+        return string.IsNullOrEmpty(normalizedPath)
             ? normalizedKey
             : $"{normalizedPath}/{normalizedKey}";
-
-        Id = Key;
-
-        var lastSlashIndex = Key.LastIndexOf('/');
-        Name = lastSlashIndex >= 0 ? Key[(lastSlashIndex + 1)..] : Key;
     }
 
     /// <summary>

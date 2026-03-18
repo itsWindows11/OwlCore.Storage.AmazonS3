@@ -20,7 +20,7 @@ public sealed partial class S3ReadWriteStream
                 return;
             }
 
-            await EnsureSourceUnchangedAsync(cancellationToken);
+            await EnsureSourceUnchangedAsync(cancellationToken).ConfigureAwait(false);
 
             if (_length == 0)
             {
@@ -30,7 +30,7 @@ public sealed partial class S3ReadWriteStream
                     Key = _key,
                     InputStream = Stream.Null,
                     AutoCloseStream = false
-                }, cancellationToken);
+                }, cancellationToken).ConfigureAwait(false);
 
                 _finalized = true;
                 return;
@@ -39,7 +39,7 @@ public sealed partial class S3ReadWriteStream
             if (_length <= PartSize)
             {
                 var buffer = new byte[_length];
-                await ReadAtCoreAsync(0, buffer.AsMemory(0, (int)_length), cancellationToken);
+                await ReadAtCoreAsync(0, buffer.AsMemory(0, (int)_length), cancellationToken).ConfigureAwait(false);
                 using var singlePutStream = new MemoryStream(buffer, writable: false);
                 await _amazonS3Client.PutObjectAsync(new PutObjectRequest
                 {
@@ -47,7 +47,7 @@ public sealed partial class S3ReadWriteStream
                     Key = _key,
                     InputStream = singlePutStream,
                     AutoCloseStream = false
-                }, cancellationToken);
+                }, cancellationToken).ConfigureAwait(false);
 
                 _finalized = true;
                 return;
@@ -57,7 +57,7 @@ public sealed partial class S3ReadWriteStream
             {
                 BucketName = _bucketName,
                 Key = _key
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
 
             var uploadId = initiate.UploadId;
             var partEtags = new List<PartETag>();
@@ -69,7 +69,7 @@ public sealed partial class S3ReadWriteStream
                 for (long start = 0; start < _length; start += PartSize)
                 {
                     var partLength = (int)Math.Min(PartSize, _length - start);
-                    await ReadAtCoreAsync(start, rentedPartBuffer.AsMemory(0, partLength), cancellationToken);
+                    await ReadAtCoreAsync(start, rentedPartBuffer.AsMemory(0, partLength), cancellationToken).ConfigureAwait(false);
 
                     using var partStream = new MemoryStream(rentedPartBuffer, 0, partLength, writable: false, publiclyVisible: true);
                     var uploadPart = await _amazonS3Client.UploadPartAsync(new UploadPartRequest
@@ -80,13 +80,13 @@ public sealed partial class S3ReadWriteStream
                         PartNumber = partNumber,
                         PartSize = partLength,
                         InputStream = partStream
-                    }, cancellationToken);
+                    }, cancellationToken).ConfigureAwait(false);
 
                     partEtags.Add(new PartETag(partNumber, uploadPart.ETag));
                     partNumber++;
                 }
 
-                await EnsureSourceUnchangedAsync(cancellationToken);
+                await EnsureSourceUnchangedAsync(cancellationToken).ConfigureAwait(false);
 
                 await _amazonS3Client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
                 {
@@ -94,7 +94,7 @@ public sealed partial class S3ReadWriteStream
                     Key = _key,
                     UploadId = uploadId,
                     PartETags = partEtags
-                }, cancellationToken);
+                }, cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -103,7 +103,7 @@ public sealed partial class S3ReadWriteStream
                     BucketName = _bucketName,
                     Key = _key,
                     UploadId = uploadId
-                }, cancellationToken);
+                }, cancellationToken).ConfigureAwait(false);
 
                 throw;
             }
@@ -130,7 +130,7 @@ public sealed partial class S3ReadWriteStream
                 {
                     BucketName = _bucketName,
                     Key = _key
-                }, cancellationToken);
+                }, cancellationToken).ConfigureAwait(false);
 
                 if (!string.Equals(metadata.ETag, _sourceETag, StringComparison.Ordinal))
                     throw new IOException("Source object changed while stream was open.");
@@ -149,7 +149,7 @@ public sealed partial class S3ReadWriteStream
             {
                 BucketName = _bucketName,
                 Key = _key
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
 
             throw new IOException("Source object was created while stream was open.");
         }

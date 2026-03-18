@@ -165,7 +165,7 @@ public sealed partial class S3ReadWriteStream : Stream
             {
                 BucketName = bucketName,
                 Key = key
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
 
             sourceExists = true;
             sourceLength = metadata.ContentLength;
@@ -198,7 +198,7 @@ public sealed partial class S3ReadWriteStream : Stream
     /// <inheritdoc />
     public override async Task FlushAsync(CancellationToken cancellationToken)
     {
-        await _sync.WaitAsync(cancellationToken);
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ThrowIfDisposedOrFinalized();
@@ -270,7 +270,7 @@ public sealed partial class S3ReadWriteStream : Stream
     /// <inheritdoc />
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
-        await _sync.WaitAsync(cancellationToken);
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             EnsureCanRead();
@@ -279,7 +279,7 @@ public sealed partial class S3ReadWriteStream : Stream
             if (toRead == 0)
                 return 0;
 
-            await ReadAtCoreAsync(_position, buffer[..toRead], cancellationToken);
+            await ReadAtCoreAsync(_position, buffer[..toRead], cancellationToken).ConfigureAwait(false);
             _position += toRead;
             return toRead;
         }
@@ -412,11 +412,11 @@ public sealed partial class S3ReadWriteStream : Stream
     /// <inheritdoc />
     public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
     {
-        await _sync.WaitAsync(cancellationToken);
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             EnsureCanWrite();
-            await WriteAtCoreAsync(_position, buffer, cancellationToken);
+            await WriteAtCoreAsync(_position, buffer, cancellationToken).ConfigureAwait(false);
             _position += buffer.Length;
             _length = Math.Max(_length, _position);
             _hasWrites = true;
@@ -484,14 +484,14 @@ public sealed partial class S3ReadWriteStream : Stream
         var lockTaken = false;
         try
         {
-            await _sync.WaitAsync(CancellationToken.None);
+            await _sync.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             lockTaken = true;
 
             if (_disposed)
                 return;
 
             if (!_finalized)
-                await CommitAsync(CancellationToken.None);
+                await CommitAsync(CancellationToken.None).ConfigureAwait(false);
 
             _disposed = true;
         }

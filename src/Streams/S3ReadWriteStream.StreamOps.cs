@@ -4,7 +4,7 @@ public sealed partial class S3ReadWriteStream
 {
     private async Task<int> ReadAsyncCore(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        await _sync.WaitAsync(cancellationToken);
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             EnsureCanRead();
@@ -13,7 +13,7 @@ public sealed partial class S3ReadWriteStream
             if (toRead == 0)
                 return 0;
 
-            await ReadAtCoreAsync(_position, buffer.AsMemory(offset, toRead), cancellationToken);
+            await ReadAtCoreAsync(_position, buffer.AsMemory(offset, toRead), cancellationToken).ConfigureAwait(false);
             _position += toRead;
             return toRead;
         }
@@ -25,11 +25,11 @@ public sealed partial class S3ReadWriteStream
 
     private async Task WriteAsyncCore(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
-        await _sync.WaitAsync(cancellationToken);
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             EnsureCanWrite();
-            await WriteAtCoreAsync(_position, buffer.AsMemory(offset, count), cancellationToken);
+            await WriteAtCoreAsync(_position, buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
             _position += count;
             _length = Math.Max(_length, _position);
             _hasWrites = true;
@@ -77,7 +77,7 @@ public sealed partial class S3ReadWriteStream
             var blockOffset = (int)(sourceOffset % BlockSize);
             var bytesThisBlock = Math.Min(remaining, BlockSize - blockOffset);
 
-            var block = await GetReadableBlockAsync(blockIndex, cancellationToken);
+            var block = await GetReadableBlockAsync(blockIndex, cancellationToken).ConfigureAwait(false);
             block.AsMemory(blockOffset, bytesThisBlock).CopyTo(destination.Slice(destOffset, bytesThisBlock));
 
             sourceOffset += bytesThisBlock;
@@ -123,12 +123,11 @@ public sealed partial class S3ReadWriteStream
             var blockOffset = (int)(writeOffset % BlockSize);
             var bytesThisBlock = Math.Min(remaining, BlockSize - blockOffset);
 
-            var block = await GetWritableBlockAsync(blockIndex, cancellationToken);
+            var block = await GetWritableBlockAsync(blockIndex, cancellationToken).ConfigureAwait(false);
             source.Slice(sourceOffset, bytesThisBlock).CopyTo(block.AsMemory(blockOffset, bytesThisBlock));
             
             // Only track dirty blocks if we have dirty block tracking enabled
-            if (_dirtyBlocks != null)
-                _dirtyBlocks[blockIndex] = block;
+            _dirtyBlocks?[blockIndex] = block;
 
             sourceOffset += bytesThisBlock;
             writeOffset += bytesThisBlock;

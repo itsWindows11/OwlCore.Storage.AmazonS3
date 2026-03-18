@@ -23,6 +23,9 @@
 		- Made tests rely on repo secrets instead of environment
 		- Changed the `IOExceptions` to `FileAlreadyExistsException` where appropriate
 		- Moved property methods to the respective property classes
+		- Made constructor where path normalization is assumed
+		- Used `ConfigureAwait(false)` on repeated async calls inside library methods
+		- Cached `Path` output
 
 		[0.1.0]
 		Initial public package release with S3 folder/file abstractions, stream-based read/write support, multipart uploads, and improved compatibility for S3-compatible providers.

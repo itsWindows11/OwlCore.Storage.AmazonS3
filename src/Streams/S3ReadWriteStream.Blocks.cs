@@ -27,7 +27,7 @@ public sealed partial class S3ReadWriteStream
         if (_dirtyBlocks != null && _dirtyBlocks.TryGetValue(blockIndex, out var dirty))
             return dirty;
 
-        var sourceBlock = await GetSourceBlockAsync(blockIndex, cancellationToken);
+        var sourceBlock = await GetSourceBlockAsync(blockIndex, cancellationToken).ConfigureAwait(false);
         var clone = new byte[BlockSize];
         Buffer.BlockCopy(sourceBlock, 0, clone, 0, BlockSize);
 
@@ -53,7 +53,7 @@ public sealed partial class S3ReadWriteStream
         if (_dirtyBlocks != null && _dirtyBlocks.TryGetValue(blockIndex, out var dirty))
             return dirty;
 
-        return await GetSourceBlockAsync(blockIndex, cancellationToken);
+        return await GetSourceBlockAsync(blockIndex, cancellationToken).ConfigureAwait(false);
     }
 
     private byte[] GetSourceBlockSync(long blockIndex)
@@ -83,15 +83,15 @@ public sealed partial class S3ReadWriteStream
                 if (!string.IsNullOrWhiteSpace(_sourceETag))
                     request.EtagToMatch = _sourceETag;
 
-                using var response = await _amazonS3Client.GetObjectAsync(request, cancellationToken);
+                using var response = await _amazonS3Client.GetObjectAsync(request, cancellationToken).ConfigureAwait(false);
 
                 var total = 0;
                 while (total < block.Length)
                 {
 #if NETSTANDARD2_0
-                    var read = await response.ResponseStream.ReadAsync(block, total, block.Length - total, cancellationToken);
+                    var read = await response.ResponseStream.ReadAsync(block, total, block.Length - total, cancellationToken).ConfigureAwait(false);
 #else
-                    var read = await response.ResponseStream.ReadAsync(block.AsMemory(total, block.Length - total), cancellationToken);
+                    var read = await response.ResponseStream.ReadAsync(block.AsMemory(total, block.Length - total), cancellationToken).ConfigureAwait(false);
 #endif
                     if (read == 0)
                         break;
