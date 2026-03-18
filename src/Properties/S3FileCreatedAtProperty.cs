@@ -35,6 +35,10 @@ internal sealed class S3FileCreatedAtProperty(S3File file)
 
     private static async Task SetValueAsync(S3File file, DateTime? value, CancellationToken cancellationToken)
     {
+        var capabilities = S3ClientCapabilities.GetOrCreate(file.AmazonS3Client);
+        if (capabilities.SupportsServerSideCopy == false)
+            return;
+
         try
         {
             var metadata = await file.GetMetadataAsync(cancellationToken);
@@ -61,9 +65,16 @@ internal sealed class S3FileCreatedAtProperty(S3File file)
             }
 
             await file.AmazonS3Client.CopyObjectAsync(copyRequest, cancellationToken);
+            capabilities.SupportsServerSideCopy = true;
+        }
+        catch (AmazonS3Exception ex) when (S3ClientCapabilities.ShouldFallbackToStreamCopy(ex))
+        {
+            capabilities.SupportsServerSideCopy = false;
         }
         catch (AmazonS3Exception)
         {
+            // Other S3 errors (e.g., object not found) are silently ignored
+            // since the metadata update is best-effort.
         }
     }
 

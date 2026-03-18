@@ -2,19 +2,11 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using System.Globalization;
 using System.Net;
-using System.Runtime.CompilerServices;
 
 namespace OwlCore.Storage.AmazonS3;
 
 public partial class S3Folder
 {
-    private static readonly ConditionalWeakTable<IAmazonS3, S3ClientCapabilities> ClientCapabilities = new();
-
-    private sealed class S3ClientCapabilities
-    {
-        public bool? SupportsServerSideCopy { get; set; }
-    }
-
     private static readonly DateTimeStyles CreatedAtDateParseStyles =
         DateTimeStyles.RoundtripKind | DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
 
@@ -27,7 +19,7 @@ public partial class S3Folder
     ];
 
     private S3ClientCapabilities GetClientCapabilities()
-        => ClientCapabilities.GetValue(AmazonS3Client, static _ => new S3ClientCapabilities());
+        => S3ClientCapabilities.GetOrCreate(AmazonS3Client);
 
     private async Task<GetObjectMetadataResponse?> TryGetObjectMetadataAsync(string key, CancellationToken cancellationToken)
     {
@@ -89,17 +81,7 @@ public partial class S3Folder
     }
 
     private static bool ShouldFallbackToStreamCopy(AmazonS3Exception ex)
-    {
-        if (ex.StatusCode == HttpStatusCode.BadRequest)
-            return true;
-
-        if (string.Equals(ex.ErrorCode, "InvalidRequest", StringComparison.Ordinal)
-            || string.Equals(ex.ErrorCode, "InvalidArgument", StringComparison.Ordinal))
-            return true;
-
-        return !string.IsNullOrWhiteSpace(ex.Message)
-            && ex.Message.Contains("copysource", StringComparison.OrdinalIgnoreCase);
-    }
+        => S3ClientCapabilities.ShouldFallbackToStreamCopy(ex);
 
     private string ResolvePath(string value)
     {
