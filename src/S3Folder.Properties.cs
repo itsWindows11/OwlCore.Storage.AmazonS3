@@ -3,12 +3,12 @@ namespace OwlCore.Storage.AmazonS3;
 public partial class S3Folder : ICreatedAt, ILastModifiedAt
 {
     /// <inheritdoc />
-    public ICreatedAtProperty CreatedAt => field ??= new S3FolderDateTimeProperty(this, isCreatedAt: true);
+    public ICreatedAtProperty CreatedAt => field ??= new S3FolderCreatedAtProperty(this);
 
     /// <inheritdoc />
-    public ILastModifiedAtProperty LastModifiedAt => field ??= new S3FolderDateTimeProperty(this, isCreatedAt: false);
+    public ILastModifiedAtProperty LastModifiedAt => field ??= new S3FolderLastModifiedAtProperty(this);
 
-    private async Task<DateTime?> GetCreatedAtValueAsync(CancellationToken cancellationToken)
+    internal async Task<DateTime?> GetCreatedAtValueAsync(CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(Prefix))
             return null;
@@ -23,7 +23,7 @@ public partial class S3Folder : ICreatedAt, ILastModifiedAt
         return markerMetadata.LastModified == default ? null : markerMetadata.LastModified;
     }
 
-    private async Task<DateTime?> GetLastModifiedAtValueAsync(CancellationToken cancellationToken)
+    internal async Task<DateTime?> GetLastModifiedAtValueAsync(CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(Prefix))
             return null;
@@ -33,20 +33,5 @@ public partial class S3Folder : ICreatedAt, ILastModifiedAt
             return null;
 
         return markerMetadata.LastModified == default ? null : markerMetadata.LastModified;
-    }
-
-    private sealed class S3FolderDateTimeProperty(S3Folder folder, bool isCreatedAt) : ICreatedAtProperty, ILastModifiedAtProperty
-    {
-        /// <inheritdoc />
-        public string Id => $"{folder.Id}:{Name}";
-
-        /// <inheritdoc />
-        public string Name => isCreatedAt ? "CreatedAt" : "LastModifiedAt";
-
-        /// <inheritdoc />
-        public Task<DateTime?> GetValueAsync(CancellationToken cancellationToken = default)
-            => isCreatedAt
-                ? folder.GetCreatedAtValueAsync(cancellationToken)
-                : folder.GetLastModifiedAtValueAsync(cancellationToken);
     }
 }

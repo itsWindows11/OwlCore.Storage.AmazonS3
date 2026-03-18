@@ -3,28 +3,24 @@ namespace OwlCore.Storage.AmazonS3;
 public partial class S3File : ICreatedAt, ILastModifiedAt
 {
     /// <inheritdoc />
-    public ICreatedAtProperty CreatedAt => field ??= new S3FileDateTimeProperty(this, isCreatedAt: true);
+    public ICreatedAtProperty CreatedAt => field ??= new S3FileCreatedAtProperty(this);
 
     /// <inheritdoc />
-    public ILastModifiedAtProperty LastModifiedAt => field ??= new S3FileDateTimeProperty(this, isCreatedAt: false);
+    public ILastModifiedAtProperty LastModifiedAt => field ??= new S3FileLastModifiedAtProperty(this);
 
-    private sealed class S3FileDateTimeProperty(S3File file, bool isCreatedAt) : ICreatedAtProperty, ILastModifiedAtProperty
+    internal async Task<DateTime?> GetCreatedAtValueAsync(CancellationToken cancellationToken)
     {
-        /// <inheritdoc />
-        public string Id => $"{file.Id}:{Name}";
+        var metadata = await GetMetadataAsync(cancellationToken);
 
-        /// <inheritdoc />
-        public string Name => isCreatedAt ? "CreatedAt" : "LastModifiedAt";
+        if (TryGetCreatedAt(metadata, out var createdAt))
+            return createdAt;
 
-        /// <inheritdoc />
-        public async Task<DateTime?> GetValueAsync(CancellationToken cancellationToken = default)
-        {
-            var metadata = await file.GetMetadataAsync(cancellationToken);
+        return metadata.LastModified == default ? null : metadata.LastModified;
+    }
 
-            if (isCreatedAt && TryGetCreatedAt(metadata, out var createdAt))
-                return createdAt;
-
-            return metadata.LastModified == default ? null : metadata.LastModified;
-        }
+    internal async Task<DateTime?> GetLastModifiedAtValueAsync(CancellationToken cancellationToken)
+    {
+        var metadata = await GetMetadataAsync(cancellationToken);
+        return metadata.LastModified == default ? null : metadata.LastModified;
     }
 }
