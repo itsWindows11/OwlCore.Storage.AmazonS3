@@ -12,7 +12,6 @@ public partial class S3Folder :
     IModifiableFolder,
     IChildFolder,
     IGetItem,
-    IGetFirstByName,
     IGetItemRecursive,
     ICreateRenamedCopyOf,
     IMoveRenamedFrom
@@ -31,7 +30,7 @@ public partial class S3Folder :
         if (string.IsNullOrEmpty(parentPath))
             return Task.FromResult<IFolder?>(null);
 
-        return Task.FromResult<IFolder?>(new S3Folder(AmazonS3Client, BucketName, parentPath));
+        return Task.FromResult<IFolder?>(new S3Folder(AmazonS3Client, BucketName, parentPath, nameOverride: null, assumeNormalized: true));
     }
 
     /// <inheritdoc />
@@ -45,10 +44,14 @@ public partial class S3Folder :
         if (type == StorableType.None)
             throw new ArgumentOutOfRangeException(nameof(type));
 
+        var prefix = Prefix;
+        var prefixLength = prefix.Length;
+        var path = Path;
+
         var request = new ListObjectsV2Request
         {
             BucketName = BucketName,
-            Prefix = Prefix,
+            Prefix = prefix,
             Delimiter = "/"
         };
 
@@ -58,7 +61,7 @@ public partial class S3Folder :
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var response = await AmazonS3Client.ListObjectsV2Async(request, cancellationToken);
+            var response = await AmazonS3Client.ListObjectsV2Async(request, cancellationToken).ConfigureAwait(false);
 
             if (type.HasFlag(StorableType.Folder))
             {
@@ -74,11 +77,13 @@ public partial class S3Folder :
                     if (string.IsNullOrEmpty(trimmed))
                         continue;
 
-                    var folderName = trimmed[(trimmed.LastIndexOf('/') + 1)..];
+                    var lastSlashIndex = trimmed.LastIndexOf('/');
+                    var folderName = lastSlashIndex >= 0 ? trimmed[(lastSlashIndex + 1)..] : trimmed;
                     if (string.IsNullOrEmpty(folderName) || !emittedFolders.Add(folderName))
                         continue;
 
-                    yield return new S3Folder(AmazonS3Client, BucketName, CombinePath(Path, folderName));
+                    var childPath = string.IsNullOrEmpty(path) ? folderName : $"{path}/{folderName}";
+                    yield return new S3Folder(AmazonS3Client, BucketName, childPath, folderName, assumeNormalized: true);
                 }
 
                 foreach (var s3Object in response.S3Objects ?? Enumerable.Empty<S3Object>())
@@ -86,10 +91,10 @@ public partial class S3Folder :
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var key = s3Object.Key;
-                    if (key == Prefix || !key.EndsWith("/", StringComparison.Ordinal))
+                    if (key == prefix || !key.EndsWith("/", StringComparison.Ordinal))
                         continue;
 
-                    var relative = Prefix.Length == 0 ? key : key[Prefix.Length..];
+                    var relative = prefixLength == 0 ? key : key[prefixLength..];
                     if (string.IsNullOrEmpty(relative))
                         continue;
 
@@ -101,7 +106,8 @@ public partial class S3Folder :
                     if (string.IsNullOrEmpty(folderName) || !emittedFolders.Add(folderName))
                         continue;
 
-                    yield return new S3Folder(AmazonS3Client, BucketName, CombinePath(Path, folderName));
+                    var childPath = string.IsNullOrEmpty(path) ? folderName : $"{path}/{folderName}";
+                    yield return new S3Folder(AmazonS3Client, BucketName, childPath, folderName, assumeNormalized: true);
                 }
             }
 
@@ -113,22 +119,22 @@ public partial class S3Folder :
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    if (s3Object.Key == Prefix
-                        || s3Object.Key.EndsWith("/", StringComparison.Ordinal)
-                        || string.Equals(Normalize(s3Object.Key), Path, StringComparison.Ordinal))
+                    var key = s3Object.Key;
+                    if (key == prefix
+                        || key.EndsWith("/", StringComparison.Ordinal)
+                        || string.Equals(key, path, StringComparison.Ordinal))
                         continue;
 
-                    var fileName = Prefix.Length == 0 ? s3Object.Key : s3Object.Key[Prefix.Length..];
+                    var fileName = prefixLength == 0 ? key : key[prefixLength..];
                     if (fileName.Contains('/'))
                         continue;
 
-                    // Placeholder files for empty folders are a common pattern in S3. Ignore those by default.
                     if (string.Equals(fileName, ".emptyFolderPlaceholder", StringComparison.Ordinal)
                         || string.Equals(fileName, ".keep", StringComparison.Ordinal)
                         || string.Equals(fileName, ".folder", StringComparison.Ordinal))
                         continue;
 
-                    yield return new S3File(AmazonS3Client, BucketName, Path, fileName);
+                    yield return new S3File(AmazonS3Client, BucketName, key, fileName, assumeNormalized: true);
                 }
             }
 
@@ -154,38 +160,12 @@ public partial class S3Folder :
         if (item is IChildFolder)
         {
             var folderPrefix = itemId.EndsWith("/", StringComparison.Ordinal) ? itemId : $"{itemId}/";
-            string? continuationToken = null;
-
-            do
-            {
-                var listResponse = await AmazonS3Client.ListObjectsV2Async(new ListObjectsV2Request
-                {
-                    BucketName = BucketName,
-                    Prefix = folderPrefix,
-                    ContinuationToken = continuationToken
-                }, cancellationToken);
-
-                if (listResponse.S3Objects?.Count > 0)
-                {
-                    var deleteRequest = new DeleteObjectsRequest
-                    {
-                        BucketName = BucketName,
-                        Objects = [..listResponse.S3Objects.Select(x => new KeyVersion { Key = x.Key })]
-                    };
-
-                    await AmazonS3Client.DeleteObjectsAsync(deleteRequest, cancellationToken);
-                }
-
-                continuationToken = listResponse.NextContinuationToken;
-            }
-            while (!string.IsNullOrEmpty(continuationToken));
-
-            await TryDeleteObjectIfExistsAsync(folderPrefix, cancellationToken);
-
+            await DeleteObjectsByPrefixAsync(folderPrefix, cancellationToken).ConfigureAwait(false);
+            await TryDeleteObjectIfExistsAsync(folderPrefix, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        await TryDeleteObjectIfExistsAsync(itemId, cancellationToken);
+        await TryDeleteObjectIfExistsAsync(itemId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -198,49 +178,23 @@ public partial class S3Folder :
         var folderPath = CombinePath(Path, normalizedName);
         var markerKey = $"{folderPath}/";
 
-        var fileExists = await TryGetObjectMetadataAsync(folderPath, cancellationToken) is not null;
-        var folderExists = await FolderExistsAsync(folderPath, cancellationToken);
+        var fileExists = await TryGetObjectMetadataAsync(folderPath, cancellationToken).ConfigureAwait(false) is not null;
+        var folderExists = await FolderExistsAsync(folderPath, cancellationToken).ConfigureAwait(false);
 
         if (!overwrite)
         {
             if (folderExists)
-                return new S3Folder(AmazonS3Client, BucketName, folderPath);
-
-            if (fileExists)
-                throw new IOException($"A file already exists at '{folderPath}'.");
+                return new S3Folder(AmazonS3Client, BucketName, folderPath, nameOverride: null, assumeNormalized: true);
         }
         else
         {
             if (fileExists)
-                await TryDeleteObjectIfExistsAsync(folderPath, cancellationToken);
+                await TryDeleteObjectIfExistsAsync(folderPath, cancellationToken).ConfigureAwait(false);
 
             if (folderExists)
             {
-                string? continuationToken = null;
-
-                do
-                {
-                    var listResponse = await AmazonS3Client.ListObjectsV2Async(new ListObjectsV2Request
-                    {
-                        BucketName = BucketName,
-                        Prefix = markerKey,
-                        ContinuationToken = continuationToken
-                    }, cancellationToken);
-
-                    if (listResponse.S3Objects?.Count > 0)
-                    {
-                        await AmazonS3Client.DeleteObjectsAsync(new DeleteObjectsRequest
-                        {
-                            BucketName = BucketName,
-                            Objects = [..listResponse.S3Objects.Select(x => new KeyVersion { Key = x.Key })]
-                        }, cancellationToken);
-                    }
-
-                    continuationToken = listResponse.NextContinuationToken;
-                }
-                while (!string.IsNullOrEmpty(continuationToken));
-
-                await TryDeleteObjectIfExistsAsync(markerKey, cancellationToken);
+                await DeleteObjectsByPrefixAsync(markerKey, cancellationToken).ConfigureAwait(false);
+                await TryDeleteObjectIfExistsAsync(markerKey, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -249,9 +203,9 @@ public partial class S3Folder :
             BucketName = BucketName,
             Key = markerKey,
             ContentBody = string.Empty
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
 
-        return new S3Folder(AmazonS3Client, BucketName, folderPath);
+        return new S3Folder(AmazonS3Client, BucketName, folderPath, nameOverride: null, assumeNormalized: true);
     }
 
     /// <inheritdoc />
@@ -263,23 +217,17 @@ public partial class S3Folder :
         var normalizedName = Normalize(name);
         var key = CombinePath(Path, normalizedName);
 
-        if (!overwrite)
-        {
-            if (await TryGetObjectMetadataAsync(key, cancellationToken) is not null)
-                return new S3File(AmazonS3Client, BucketName, Path, normalizedName);
-
-            if (await FolderExistsAsync(key, cancellationToken))
-                throw new IOException($"A folder already exists at '{key}/'.");
-        }
+        if (!overwrite && await TryGetObjectMetadataAsync(key, cancellationToken).ConfigureAwait(false) is not null)
+            return new S3File(AmazonS3Client, BucketName, key, normalizedName, assumeNormalized: true);
 
         await AmazonS3Client.PutObjectAsync(new PutObjectRequest
         {
             BucketName = BucketName,
             Key = key,
             ContentBody = string.Empty
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
 
-        return new S3File(AmazonS3Client, BucketName, Path, normalizedName);
+        return new S3File(AmazonS3Client, BucketName, key, normalizedName, assumeNormalized: true);
     }
 
     /// <inheritdoc />
@@ -293,9 +241,9 @@ public partial class S3Folder :
 
         var fileMetadata = requestedFolder
             ? null
-            : await TryGetObjectMetadataAsync(fullId, cancellationToken);
+            : await TryGetObjectMetadataAsync(fullId, cancellationToken).ConfigureAwait(false);
 
-        var folderExists = await FolderExistsAsync(fullId, cancellationToken);
+        var folderExists = await FolderExistsAsync(fullId, cancellationToken).ConfigureAwait(false);
 
         // S3 can contain both an object key ("foo") and a pseudo-folder prefix ("foo/").
         // Treat that as ambiguous and force callers to disambiguate with a trailing slash.
@@ -310,24 +258,9 @@ public partial class S3Folder :
         }
 
         if (folderExists)
-            return new S3Folder(AmazonS3Client, BucketName, fullId);
+            return new S3Folder(AmazonS3Client, BucketName, fullId, nameOverride: null, assumeNormalized: true);
 
         throw new FileNotFoundException($"Item '{fullId}' was not found.");
-    }
-
-    /// <inheritdoc />
-    public async Task<IStorableChild> GetFirstByNameAsync(string name, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Value cannot be null or whitespace.", nameof(name));
-
-        await foreach (var item in GetItemsAsync(StorableType.All, cancellationToken))
-        {
-            if (string.Equals(item.Name, name, StringComparison.Ordinal))
-                return item;
-        }
-
-        throw new FileNotFoundException($"No item named '{name}' was found in folder '{Id}'.");
     }
 
     /// <inheritdoc />
@@ -341,9 +274,9 @@ public partial class S3Folder :
 
         var fileMetadata = requestedFolder
             ? null
-            : await TryGetObjectMetadataAsync(fullId, cancellationToken);
+            : await TryGetObjectMetadataAsync(fullId, cancellationToken).ConfigureAwait(false);
 
-        var folderExists = await FolderExistsAsync(fullId, cancellationToken);
+        var folderExists = await FolderExistsAsync(fullId, cancellationToken).ConfigureAwait(false);
 
         // S3 can contain both an object key ("foo") and a pseudo-folder prefix ("foo/").
         // Treat that as ambiguous and force callers to disambiguate with a trailing slash.
@@ -358,79 +291,43 @@ public partial class S3Folder :
         }
 
         if (folderExists)
-            return new S3Folder(AmazonS3Client, BucketName, fullId);
+            return new S3Folder(AmazonS3Client, BucketName, fullId, nameOverride: null, assumeNormalized: true);
 
         throw new FileNotFoundException($"Item '{fullId}' was not found.");
     }
 
     /// <inheritdoc cref="ICreateCopyOf.CreateCopyOfAsync(IFile, bool, CancellationToken, CreateCopyOfDelegate)"/>
-    public Task<IChildFile> CreateCopyOfAsync(IFile sourceFile, bool overwrite = false, CancellationToken cancellationToken = default, CreateCopyOfDelegate? fallback = null)
+    public async Task<IChildFile> CreateCopyOfAsync(IFile sourceFile, bool overwrite, CancellationToken cancellationToken, CreateCopyOfDelegate fallback)
     {
         if (sourceFile is null)
             throw new ArgumentNullException(nameof(sourceFile));
 
-        return CreateCopyOfAsync(sourceFile, overwrite, sourceFile.Name, cancellationToken);
+        if (sourceFile is not S3File s3Source)
+            return await fallback(this, sourceFile, overwrite, cancellationToken).ConfigureAwait(false);
+
+        var result = await TryCreateS3CopyAsync(s3Source, sourceFile.Name, overwrite, cancellationToken).ConfigureAwait(false);
+        return result ?? await fallback(this, sourceFile, overwrite, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc cref="ICreateRenamedCopyOf.CreateCopyOfAsync(IFile, bool, string, CancellationToken, CreateRenamedCopyOfDelegate)"/>
-    public async Task<IChildFile> CreateCopyOfAsync(IFile sourceFile, bool overwrite = false, string desiredName = "", CancellationToken cancellationToken = default, CreateRenamedCopyOfDelegate? fallback = null)
+    public async Task<IChildFile> CreateCopyOfAsync(IFile sourceFile, bool overwrite, string desiredName, CancellationToken cancellationToken, CreateRenamedCopyOfDelegate fallback)
     {
         if (sourceFile is null)
             throw new ArgumentNullException(nameof(sourceFile));
+
+        if (sourceFile is not S3File s3Source)
+            return await fallback(this, sourceFile, overwrite, desiredName, cancellationToken).ConfigureAwait(false);
 
         var fileName = string.IsNullOrWhiteSpace(desiredName) ? sourceFile.Name : desiredName;
         if (string.IsNullOrWhiteSpace(fileName))
             throw new ArgumentException("Value cannot be null or whitespace.", nameof(desiredName));
 
-        var normalizedName = Normalize(fileName);
-        var destinationKey = CombinePath(Path, normalizedName);
-
-        if (!overwrite)
-        {
-            if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken) is not null)
-                throw new IOException($"File '{destinationKey}' already exists.");
-
-            if (await FolderExistsAsync(destinationKey, cancellationToken))
-                throw new IOException($"A folder already exists at '{destinationKey}/'.");
-        }
-
-        if (sourceFile is S3File s3Source)
-        {
-            try
-            {
-                await AmazonS3Client.CopyObjectAsync(new CopyObjectRequest
-                {
-                    SourceBucket = s3Source.BucketName,
-                    SourceKey = s3Source.Key,
-                    DestinationBucket = BucketName,
-                    DestinationKey = destinationKey
-                }, cancellationToken);
-
-                return new S3File(AmazonS3Client, BucketName, Path, normalizedName);
-            }
-            // Some S3-compatible services (e.g. Supabase) may not support server-side copying.
-            // In that case, fall back to a stream copy.
-            catch (AmazonS3Exception ex) when (ShouldFallbackToStreamCopy(ex))
-            {
-            }
-        }
-
-        var destinationFile = await CreateFileAsync(normalizedName, overwrite, cancellationToken);
-
-#if NETSTANDARD2_0
-        using var sourceStream = await sourceFile.OpenStreamAsync(FileAccess.Read, cancellationToken);
-        using var destinationStream = await destinationFile.OpenStreamAsync(FileAccess.Write, cancellationToken);
-#else
-        await using var sourceStream = await sourceFile.OpenStreamAsync(FileAccess.Read, cancellationToken);
-        await using var destinationStream = await destinationFile.OpenStreamAsync(FileAccess.Write, cancellationToken);
-#endif
-        await sourceStream.CopyToAsync(destinationStream, 81920, cancellationToken);
-
-        return destinationFile;
+        var result = await TryCreateS3CopyAsync(s3Source, fileName, overwrite, cancellationToken).ConfigureAwait(false);
+        return result ?? await fallback(this, sourceFile, overwrite, desiredName, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc cref="IMoveFrom.MoveFromAsync(IChildFile, IModifiableFolder, bool, CancellationToken, MoveFromDelegate)"/>
-    public Task<IChildFile> MoveFromAsync(IChildFile sourceFile, IModifiableFolder sourceFolder, bool overwrite = false, CancellationToken cancellationToken = default, MoveFromDelegate? fallback = null)
+    public async Task<IChildFile> MoveFromAsync(IChildFile sourceFile, IModifiableFolder sourceFolder, bool overwrite, CancellationToken cancellationToken, MoveFromDelegate fallback)
     {
         if (sourceFile is null)
             throw new ArgumentNullException(nameof(sourceFile));
@@ -438,62 +335,30 @@ public partial class S3Folder :
         if (sourceFolder is null)
             throw new ArgumentNullException(nameof(sourceFolder));
 
-        return MoveFromAsync(sourceFile, sourceFolder, overwrite, sourceFile.Name, cancellationToken);
+        if (sourceFile is not S3File s3Source)
+            return await fallback(this, sourceFile, sourceFolder, overwrite, cancellationToken).ConfigureAwait(false);
+
+        var result = await TryCreateS3MoveAsync(s3Source, sourceFile.Name, overwrite, cancellationToken).ConfigureAwait(false);
+        return result ?? await fallback(this, sourceFile, sourceFolder, overwrite, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc cref="IMoveRenamedFrom.MoveFromAsync(IChildFile, IModifiableFolder, bool, string, CancellationToken, MoveRenamedFromDelegate)"/>
-    public async Task<IChildFile> MoveFromAsync(IChildFile sourceFile, IModifiableFolder sourceFolder, bool overwrite = false, string desiredName = "", CancellationToken cancellationToken = default, MoveRenamedFromDelegate? fallback = null)
+    public async Task<IChildFile> MoveFromAsync(IChildFile sourceFile, IModifiableFolder sourceFolder, bool overwrite, string desiredName, CancellationToken cancellationToken, MoveRenamedFromDelegate fallback)
     {
         if (sourceFile is null)
             throw new ArgumentNullException(nameof(sourceFile));
 
         if (sourceFolder is null)
             throw new ArgumentNullException(nameof(sourceFolder));
+
+        if (sourceFile is not S3File s3Source)
+            return await fallback(this, sourceFile, sourceFolder, overwrite, desiredName, cancellationToken).ConfigureAwait(false);
 
         var fileName = string.IsNullOrWhiteSpace(desiredName) ? sourceFile.Name : desiredName;
         if (string.IsNullOrWhiteSpace(fileName))
             throw new ArgumentException("Value cannot be null or whitespace.", nameof(desiredName));
 
-        var normalizedName = Normalize(fileName);
-        var destinationKey = CombinePath(Path, normalizedName);
-
-        if (!overwrite)
-        {
-            if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken) is not null)
-                throw new IOException($"File '{destinationKey}' already exists.");
-
-            if (await FolderExistsAsync(destinationKey, cancellationToken))
-                throw new IOException($"A folder already exists at '{destinationKey}/'.");
-        }
-
-        if (sourceFile is S3File s3Source)
-        {
-            try
-            {
-                await AmazonS3Client.CopyObjectAsync(new CopyObjectRequest
-                {
-                    SourceBucket = s3Source.BucketName,
-                    SourceKey = s3Source.Key,
-                    DestinationBucket = BucketName,
-                    DestinationKey = destinationKey
-                }, cancellationToken);
-
-                await s3Source.AmazonS3Client.DeleteObjectAsync(new DeleteObjectRequest
-                {
-                    BucketName = s3Source.BucketName,
-                    Key = s3Source.Key
-                }, cancellationToken);
-
-                return new S3File(AmazonS3Client, BucketName, Path, normalizedName);
-            }
-            catch (AmazonS3Exception ex) when (ShouldFallbackToStreamCopy(ex))
-            {
-            }
-        }
-
-        var copiedItem = await CreateCopyOfAsync(sourceFile, overwrite, normalizedName, cancellationToken);
-        await sourceFolder.DeleteAsync(sourceFile, cancellationToken);
-
-        return copiedItem;
+        var result = await TryCreateS3MoveAsync(s3Source, fileName, overwrite, cancellationToken).ConfigureAwait(false);
+        return result ?? await fallback(this, sourceFile, sourceFolder, overwrite, desiredName, cancellationToken).ConfigureAwait(false);
     }
 }

@@ -18,6 +18,9 @@ public partial class S3Folder
         "created-at"
     ];
 
+    private S3ClientCapabilities GetClientCapabilities()
+        => S3ClientCapabilities.GetOrCreate(AmazonS3Client);
+
     private async Task<GetObjectMetadataResponse?> TryGetObjectMetadataAsync(string key, CancellationToken cancellationToken)
     {
         try
@@ -26,7 +29,7 @@ public partial class S3Folder
             {
                 BucketName = BucketName,
                 Key = key
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
@@ -42,25 +45,43 @@ public partial class S3Folder
             {
                 BucketName = BucketName,
                 Key = key
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
         }
     }
 
-    private static bool ShouldFallbackToStreamCopy(AmazonS3Exception ex)
+    private async Task DeleteObjectsByPrefixAsync(string prefix, CancellationToken cancellationToken)
     {
-        if (ex.StatusCode == HttpStatusCode.BadRequest)
-            return true;
+        string? continuationToken = null;
 
-        if (string.Equals(ex.ErrorCode, "InvalidRequest", StringComparison.Ordinal)
-            || string.Equals(ex.ErrorCode, "InvalidArgument", StringComparison.Ordinal))
-            return true;
+        do
+        {
+            var listResponse = await AmazonS3Client.ListObjectsV2Async(new ListObjectsV2Request
+            {
+                BucketName = BucketName,
+                Prefix = prefix,
+                ContinuationToken = continuationToken,
+                MaxKeys = 1000
+            }, cancellationToken).ConfigureAwait(false);
 
-        return !string.IsNullOrWhiteSpace(ex.Message)
-            && ex.Message.Contains("copysource");
+            if (listResponse.S3Objects?.Count > 0)
+            {
+                await AmazonS3Client.DeleteObjectsAsync(new DeleteObjectsRequest
+                {
+                    BucketName = BucketName,
+                    Objects = [.. listResponse.S3Objects.Select(x => new KeyVersion { Key = x.Key })]
+                }, cancellationToken).ConfigureAwait(false);
+            }
+
+            continuationToken = listResponse.NextContinuationToken;
+        }
+        while (!string.IsNullOrEmpty(continuationToken));
     }
+
+    private static bool ShouldFallbackToStreamCopy(AmazonS3Exception ex)
+        => S3ClientCapabilities.ShouldFallbackToStreamCopy(ex);
 
     private string ResolvePath(string value)
     {
@@ -99,15 +120,12 @@ public partial class S3Folder
 
         var folderPrefix = normalizedPath.EndsWith("/", StringComparison.Ordinal) ? normalizedPath : $"{normalizedPath}/";
 
-        if (await TryGetObjectMetadataAsync(folderPrefix, cancellationToken) is not null)
-            return true;
-
         var listResponse = await AmazonS3Client.ListObjectsV2Async(new ListObjectsV2Request
         {
             BucketName = BucketName,
             Prefix = folderPrefix,
             MaxKeys = 1
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
 
         return listResponse.S3Objects?.Count > 0;
     }
@@ -123,5 +141,89 @@ public partial class S3Folder
 
         createdAt = default;
         return false;
+    }
+
+    private async Task<IChildFile?> TryCreateS3CopyAsync(S3File s3Source, string destinationName, bool overwrite, CancellationToken cancellationToken)
+    {
+        var normalizedName = Normalize(destinationName);
+        var destinationKey = CombinePath(Path, normalizedName);
+
+        if (!overwrite)
+        {
+            if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken).ConfigureAwait(false) is not null)
+                throw new FileAlreadyExistsException(normalizedName);
+
+            if (await FolderExistsAsync(destinationKey, cancellationToken).ConfigureAwait(false))
+                throw new FileAlreadyExistsException($"{destinationKey}/ (folder)");
+        }
+
+        var capabilities = GetClientCapabilities();
+        if (capabilities.SupportsServerSideCopy == false)
+            return null;
+
+        try
+        {
+            await AmazonS3Client.CopyObjectAsync(new CopyObjectRequest
+            {
+                SourceBucket = s3Source.BucketName,
+                SourceKey = s3Source.Key,
+                DestinationBucket = BucketName,
+                DestinationKey = destinationKey
+            }, cancellationToken).ConfigureAwait(false);
+
+            capabilities.SupportsServerSideCopy = true;
+            return new S3File(AmazonS3Client, BucketName, destinationKey, normalizedName, assumeNormalized: true);
+        }
+        // Some S3-compatible services (e.g. Supabase) may not support server-side copying.
+        // In that case, fall back to a stream copy.
+        catch (AmazonS3Exception ex) when (ShouldFallbackToStreamCopy(ex))
+        {
+            capabilities.SupportsServerSideCopy = false;
+            return null;
+        }
+    }
+
+    private async Task<IChildFile?> TryCreateS3MoveAsync(S3File s3Source, string destinationName, bool overwrite, CancellationToken cancellationToken)
+    {
+        var normalizedName = Normalize(destinationName);
+        var destinationKey = CombinePath(Path, normalizedName);
+
+        if (!overwrite)
+        {
+            if (await TryGetObjectMetadataAsync(destinationKey, cancellationToken).ConfigureAwait(false) is not null)
+                throw new FileAlreadyExistsException(normalizedName);
+
+            if (await FolderExistsAsync(destinationKey, cancellationToken).ConfigureAwait(false))
+                throw new FileAlreadyExistsException($"{destinationKey}/ (folder)");
+        }
+
+        var capabilities = GetClientCapabilities();
+        if (capabilities.SupportsServerSideCopy == false)
+            return null;
+
+        try
+        {
+            await AmazonS3Client.CopyObjectAsync(new CopyObjectRequest
+            {
+                SourceBucket = s3Source.BucketName,
+                SourceKey = s3Source.Key,
+                DestinationBucket = BucketName,
+                DestinationKey = destinationKey
+            }, cancellationToken).ConfigureAwait(false);
+
+            await s3Source.AmazonS3Client.DeleteObjectAsync(new DeleteObjectRequest
+            {
+                BucketName = s3Source.BucketName,
+                Key = s3Source.Key
+            }, cancellationToken).ConfigureAwait(false);
+
+            capabilities.SupportsServerSideCopy = true;
+            return new S3File(AmazonS3Client, BucketName, destinationKey, normalizedName, assumeNormalized: true);
+        }
+        catch (AmazonS3Exception ex) when (ShouldFallbackToStreamCopy(ex))
+        {
+            capabilities.SupportsServerSideCopy = false;
+            return null;
+        }
     }
 }

@@ -11,6 +11,11 @@ public partial class S3Folder
     /// <param name="bucketName">The bucket that contains this folder.</param>
     /// <param name="path">The folder path inside <paramref name="bucketName"/>.</param>
     public S3Folder(IAmazonS3 amazonS3, string bucketName, string path)
+        : this(amazonS3, bucketName, path, nameOverride: null, assumeNormalized: false)
+    {
+    }
+
+    internal S3Folder(IAmazonS3 amazonS3, string bucketName, string path, string? nameOverride, bool assumeNormalized)
     {
         if (amazonS3 is null)
             throw new ArgumentNullException(nameof(amazonS3));
@@ -20,11 +25,22 @@ public partial class S3Folder
 
         AmazonS3Client = amazonS3;
         BucketName = bucketName;
-        Path = (path ?? string.Empty).Replace('\\', '/').Trim('/');
+
+        Path = assumeNormalized
+            ? (path ?? string.Empty)
+            : (path ?? string.Empty).Replace('\\', '/').Trim('/');
+
+        Prefix = string.IsNullOrEmpty(Path) ? string.Empty : $"{Path}/";
 
         Id = string.IsNullOrEmpty(Path) ? "/" : $"/{Path}";
-        if (string.IsNullOrEmpty(Path))
+        if (nameOverride is { Length: > 0 } resolvedName)
+        {
+            Name = resolvedName;
+        }
+        else if (string.IsNullOrEmpty(Path))
+        {
             Name = bucketName;
+        }
         else
         {
             var lastSlashIndex = Path.LastIndexOf('/');
@@ -53,5 +69,5 @@ public partial class S3Folder
     /// <inheritdoc />
     public string Name { get; }
 
-    private string Prefix => string.IsNullOrEmpty(Path) ? string.Empty : $"{Path}/";
+    private string Prefix { get; }
 }
